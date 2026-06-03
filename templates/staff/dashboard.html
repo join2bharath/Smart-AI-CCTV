@@ -1,0 +1,132 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Staff Dashboard — College CMS{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+{% block body %}
+{{ sidebar('staff', 'dashboard', staff, dept, recent_alerts|length) }}
+<div class="main-content">
+  {{ topbar('Staff Dashboard', 'staff', recent_alerts|length, url_for('staff.notif_count')) }}
+  <div class="page-content">
+
+    <!-- Stats Row -->
+    <div class="stats-grid">
+      <div class="stat-card glass">
+        <div class="stat-icon" style="background:linear-gradient(135deg,#6366f1,#818cf8)"><i class="fa fa-users"></i></div>
+        <div class="stat-info"><span class="stat-num">{{ students|length }}</span><span class="stat-label">My Students</span></div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-icon" style="background:linear-gradient(135deg,#10b981,#34d399)"><i class="fa fa-calendar-check"></i></div>
+        <div class="stat-info"><span class="stat-num">{{ today }}</span><span class="stat-label">Today</span></div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-icon" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)"><i class="fa fa-bell"></i></div>
+        <div class="stat-info"><span class="stat-num">{{ recent_alerts|length }}</span><span class="stat-label">New Alerts</span></div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-icon" style="background:linear-gradient(135deg,#ef4444,#f87171)"><i class="fa fa-building"></i></div>
+        <div class="stat-info"><span class="stat-num">{{ dept.name }}</span><span class="stat-label">Department</span></div>
+      </div>
+    </div>
+
+    <!-- Profile + Quick Actions -->
+    <div class="dash-two-col">
+      <div class="profile-card glass compact">
+        <div class="profile-avatar small">
+          <span class="avatar-fallback large">{{ staff.name[0] }}</span>
+        </div>
+        <div class="profile-info">
+          <h3>{{ staff.name }}</h3>
+          <span class="role-badge role-staff">Staff · {{ staff.qualification }}</span>
+          <div class="profile-meta">
+            <div class="meta-item"><i class="fa fa-building"></i><span>{{ dept.name }}</span></div>
+            <div class="meta-item"><i class="fa fa-phone"></i><span>{{ staff.phone or 'N/A' }}</span></div>
+            <div class="meta-item"><i class="fa fa-envelope"></i><span>{{ staff.email or 'N/A' }}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-actions glass">
+        <h4><i class="fa fa-bolt"></i> Quick Actions</h4>
+        <div class="action-btns">
+          <a href="{{ url_for('staff.attendance') }}" class="action-btn">
+            <i class="fa fa-calendar-check"></i><span>Mark Attendance</span>
+          </a>
+          <a href="{{ url_for('staff.marks') }}" class="action-btn">
+            <i class="fa fa-chart-bar"></i><span>Edit Marks</span>
+          </a>
+          <a href="{{ url_for('staff.announce') }}" class="action-btn">
+            <i class="fa fa-bullhorn"></i><span>Post Announcement</span>
+          </a>
+          <a href="{{ url_for('staff.camera') }}" class="action-btn">
+            <i class="fa fa-video"></i><span>View Camera</span>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Student List Preview -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-users"></i> My Students</h3>
+        <div class="section-tabs">
+          <button class="tab-btn active" onclick="filterSection('all',this)">All</button>
+          <button class="tab-btn" onclick="filterSection('A',this)">Section A</button>
+          <button class="tab-btn" onclick="filterSection('B',this)">Section B</button>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="studTable">
+          <thead>
+            <tr><th>#</th><th>Roll No</th><th>Name</th><th>Section</th><th>Phone</th><th>Email</th></tr>
+          </thead>
+          <tbody>
+            {% for s in students %}
+            <tr data-section="{{ s.section }}">
+              <td>{{ loop.index }}</td>
+              <td><span class="code-tag">{{ s.roll_no }}</span></td>
+              <td>{{ s.name }}</td>
+              <td><span class="section-badge-sm {{ 'sec-a' if s.section=='A' else 'sec-b' }}">{{ s.section }}</span></td>
+              <td>{{ s.phone or '—' }}</td>
+              <td>{{ s.email or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="empty-row">No students found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Recent Alerts -->
+    {% if recent_alerts %}
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-exclamation-triangle" style="color:#f59e0b"></i> Recent Camera Alerts</h3>
+      </div>
+      <div class="alert-list">
+        {% for alert in recent_alerts %}
+        <div class="alert-item alert-{{ alert.alert_type }}">
+          <div class="alert-icon"><i class="fa {{ 'fa-fire' if alert.alert_type=='fire' else 'fa-exclamation-circle' }}"></i></div>
+          <div class="alert-body">
+            <b>{{ alert.alert_type|title }}</b> detected
+            <span class="alert-time">{{ alert.created_at.strftime('%d %b %Y %H:%M') }}</span>
+          </div>
+          <span class="badge-new">NEW</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+<script>
+function filterSection(sec, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('#studTable tbody tr[data-section]').forEach(row => {
+    row.style.display = (sec === 'all' || row.dataset.section === sec) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

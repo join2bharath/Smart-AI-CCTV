@@ -1,0 +1,119 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Edit Student — {{ dept.name }} HOD{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('hod', 'students', hod, dept) }}
+<div class="main-content">
+  {{ topbar('Edit Student — ' + student.name, 'hod') }}
+  <div class="page-content">
+    <div class="edit-student-container">
+      <div class="section-card glass-card" style="max-width: 800px; margin: 0 auto; display: flex; gap: 2rem;">
+        
+        <!-- Live Image Preview -->
+        <div class="image-preview-section" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border-right: 1px solid var(--border-color); padding-right: 2rem;">
+          <h4 style="color: var(--text-color); margin-bottom: 0;">Profile Photo</h4>
+          <div class="photo-container" style="width: 200px; height: 200px; border-radius: 50%; overflow: hidden; border: 4px solid var(--primary-color); box-shadow: 0 8px 16px rgba(0,0,0,0.3);">
+            <img id="livePreview" src="{{ student.photo if student.photo.startswith('http') else url_for('static', filename='img/' + (student.photo or 'default_student.png')) }}" alt="Student Photo" style="width: 100%; height: 100%; object-fit: cover;">
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); text-align: center;">Enter a valid URL to see the live preview.</p>
+        </div>
+
+        <!-- Form Section -->
+        <div class="form-section" style="flex: 2;">
+          <form method="POST" action="{{ url_for('hod.edit_student', student_id=student.id) }}" class="glass-form">
+            <h3 style="margin-bottom: 1.5rem; color: var(--text-color);">Student Details</h3>
+            
+            <div class="form-row" style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+              <div class="form-group" style="flex: 1;">
+                <label>Name</label>
+                <input type="text" name="name" value="{{ student.name }}" required class="form-control">
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label>Roll No</label>
+                <input type="text" name="roll_no" value="{{ student.roll_no }}" required class="form-control">
+              </div>
+            </div>
+
+            <div class="form-row" style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+              <div class="form-group" style="flex: 1;">
+                <label>Section</label>
+                <select name="section" class="form-control">
+                  <option value="A" {% if student.section == 'A' %}selected{% endif %}>A</option>
+                  <option value="B" {% if student.section == 'B' %}selected{% endif %}>B</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label>Phone</label>
+                <input type="text" name="phone" value="{{ student.phone or '' }}" class="form-control">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label>Email</label>
+              <input type="email" name="email" value="{{ student.email or '' }}" class="form-control">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label>Address</label>
+              <textarea name="address" rows="2" class="form-control">{{ student.address or '' }}</textarea>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+              <label>Photo URL (Internet URL or filename)</label>
+              <input type="text" id="photoUrlInput" name="photo" value="{{ student.photo or '' }}" class="form-control" oninput="updatePreview(this.value)">
+            </div>
+
+            <div class="form-actions" style="display: flex; gap: 1rem; justify-content: flex-end;">
+              <a href="{{ url_for('hod.students') }}" class="btn btn-secondary">Cancel</a>
+              <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Save Changes</button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function updatePreview(url) {
+  const preview = document.getElementById('livePreview');
+  if (url.trim() === '') {
+    preview.src = "{{ url_for('static', filename='img/default_student.png') }}";
+    return;
+  }
+  if (url.startsWith('http')) {
+    preview.src = url;
+  } else {
+    // If it's just a filename in static/img
+    preview.src = "{{ url_for('static', filename='img/') }}" + url;
+  }
+}
+</script>
+
+<style>
+/* Additional specific styles for edit page */
+.glass-form .form-control {
+  width: 100%;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  transition: all 0.3s ease;
+}
+.glass-form .form-control:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  background: rgba(255, 255, 255, 0.1);
+}
+.glass-form label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+</style>
+{% endblock %}

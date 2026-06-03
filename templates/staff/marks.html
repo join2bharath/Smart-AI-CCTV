@@ -1,0 +1,72 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Edit Marks — College CMS{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+{% block body %}
+{{ sidebar('staff', 'marks', staff, dept) }}
+<div class="main-content">
+  {{ topbar('Edit Student Marks', 'staff') }}
+  <div class="page-content">
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-chart-bar"></i> Internal Marks</h3>
+        <div class="section-tabs">
+          <a href="{{ url_for('staff.marks', section='A') }}" class="tab-btn {% if section=='A' %}active{% endif %}">Section A</a>
+          <a href="{{ url_for('staff.marks', section='B') }}" class="tab-btn {% if section=='B' %}active{% endif %}">Section B</a>
+        </div>
+      </div>
+      <form method="POST" action="{{ url_for('staff.marks', section=section) }}">
+        <input type="hidden" name="section" value="{{ section }}"/>
+        <div class="table-responsive">
+          <table class="data-table marks-edit-table">
+            <thead>
+              <tr>
+                <th>Roll No</th>
+                <th>Name</th>
+                {% for subj in subjects %}
+                <th colspan="3" class="subj-header">{{ subj.name }}</th>
+                {% endfor %}
+              </tr>
+              <tr class="sub-header-row">
+                <th></th><th></th>
+                {% for subj in subjects %}
+                <th>IA1</th><th>IA2</th><th>IA3</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in students %}
+              <tr>
+                <td><span class="code-tag">{{ s.roll_no }}</span></td>
+                <td>{{ s.name }}</td>
+                {% for subj in subjects %}
+                {% set mk = marks_dict.get(s.id, {}).get(subj.id) %}
+                {% for i in [1, 2, 3] %}
+                {% set val = mk['internal' ~ i] if mk else 0 %}
+                <td>
+                  <input type="number" name="mark_{{ s.id }}_{{ subj.id }}_{{ i }}"
+                         value="{{ val or 0 }}" min="0" max="100"
+                         class="mark-input {% if val >= 35 %}pass-input{% elif val > 0 %}fail-input{% endif %}"
+                         oninput="colorInput(this)"/>
+                </td>
+                {% endfor %}
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary"><i class="fa fa-save"></i> Save All Marks</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+function colorInput(inp) {
+  const v = parseInt(inp.value) || 0;
+  inp.className = 'mark-input ' + (v >= 35 ? 'pass-input' : v > 0 ? 'fail-input' : '');
+}
+</script>
+{% endblock %}

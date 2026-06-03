@@ -1,0 +1,58 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Attendance — {{ dept.name }} HOD{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('hod', 'attendance', hod, dept) }}
+<div class="main-content">
+  {{ topbar('Attendance — ' + dept.name, 'hod') }}
+  <div class="page-content">
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-calendar-check"></i> Attendance Report (View-only)</h3>
+      </div>
+      <div style="padding:16px 20px; display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+        <form method="GET" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+          <div>
+            <label class="form-label">Date</label>
+            <input type="date" name="date" value="{{ sel_date }}" class="form-control" style="width:160px;">
+          </div>
+          <div>
+            <label class="form-label">Section</label>
+            <select name="section" class="form-control" style="width:120px;">
+              <option value="A" {% if section=='A' %}selected{% endif %}>Section A</option>
+              <option value="B" {% if section=='B' %}selected{% endif %}>Section B</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" type="submit"><i class="fa fa-search"></i> View</button>
+        </form>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr><th>#</th><th>Roll No</th><th>Name</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            {% for stu in students %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><b>{{ stu.roll_no }}</b></td>
+              <td>{{ stu.name }}</td>
+              <td>
+                {% set st = existing.get(stu.id, '—') %}
+                {% if st == 'P' %}<span class="status-p">Present</span>
+                {% elif st == 'A' %}<span class="status-a">Absent</span>
+                {% else %}<span style="color:var(--text-muted)">Not Marked</span>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty-row">No students found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,98 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Mark Attendance — College CMS{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+{% block body %}
+{{ sidebar('staff', 'attendance', staff, dept) }}
+<div class="main-content">
+  {{ topbar('Mark Attendance', 'staff') }}
+  <div class="page-content">
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-calendar-check"></i> Mark Attendance</h3>
+      </div>
+      <form method="POST" action="{{ url_for('staff.attendance') }}">
+        <div class="filter-bar">
+          <div class="form-group inline">
+            <label>Date</label>
+            <input type="date" name="date" value="{{ sel_date }}" class="form-control" id="dateInput" onchange="filterAttendance()"/>
+          </div>
+          <div class="form-group inline">
+            <label>Section</label>
+            <select name="section" id="sectionSelect" class="form-control" onchange="filterAttendance()">
+              <option value="A" {% if section=='A' %}selected{% endif %}>Section A</option>
+              <option value="B" {% if section=='B' %}selected{% endif %}>Section B</option>
+            </select>
+          </div>
+          <div class="att-summary">
+            <span class="att-stat present" id="presentCount">0 Present</span>
+            <span class="att-stat absent" id="absentCount">0 Absent</span>
+          </div>
+        </div>
+        <input type="hidden" name="date" value="{{ sel_date }}"/>
+        <input type="hidden" name="section" value="{{ section }}"/>
+
+        <div class="att-controls">
+          <button type="button" class="btn-secondary" onclick="markAll('P')"><i class="fa fa-check-double"></i> Mark All Present</button>
+          <button type="button" class="btn-secondary" onclick="markAll('A')"><i class="fa fa-times"></i> Mark All Absent</button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr><th>#</th><th>Roll No</th><th>Name</th><th>Present</th><th>Absent</th></tr>
+            </thead>
+            <tbody>
+              {% for s in students %}
+              {% set cur = existing.get(s.id, 'P') %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td><span class="code-tag">{{ s.roll_no }}</span></td>
+                <td>{{ s.name }}</td>
+                <td>
+                  <label class="radio-label present-label">
+                    <input type="radio" name="status_{{ s.id }}" value="P" class="att-radio"
+                           {% if cur == 'P' %}checked{% endif %} onchange="updateCount()"/>
+                    <span class="radio-custom present"></span>
+                  </label>
+                </td>
+                <td>
+                  <label class="radio-label absent-label">
+                    <input type="radio" name="status_{{ s.id }}" value="A" class="att-radio"
+                           {% if cur == 'A' %}checked{% endif %} onchange="updateCount()"/>
+                    <span class="radio-custom absent"></span>
+                  </label>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary"><i class="fa fa-save"></i> Save Attendance</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+function updateCount() {
+  let p = document.querySelectorAll('input[type=radio][value=P]:checked').length;
+  let a = document.querySelectorAll('input[type=radio][value=A]:checked').length;
+  document.getElementById('presentCount').textContent = p + ' Present';
+  document.getElementById('absentCount').textContent = a + ' Absent';
+}
+function markAll(val) {
+  document.querySelectorAll('input[type=radio][value='+val+']').forEach(r => r.checked = true);
+  updateCount();
+}
+function filterAttendance() {
+  const d = document.getElementById('dateInput').value;
+  const s = document.getElementById('sectionSelect').value;
+  window.location.href = "{{ url_for('staff.attendance') }}?date=" + d + "&section=" + s;
+}
+// Prevent selecting future dates
+document.getElementById('dateInput').max = new Date().toISOString().split('T')[0];
+updateCount();
+</script>
+{% endblock %}

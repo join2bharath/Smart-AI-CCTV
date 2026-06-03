@@ -1,0 +1,8 @@
+{
+  "IT":    {"camera_index": 0, "enabled": true},
+  "CSE":   {"camera_index": 0, "enabled": true},
+  "AIDS":  {"camera_index": 0, "enabled": true},
+  "ECE":   {"camera_index": 0, "enabled": true},
+  "EEE":   {"camera_index": 0, "enabled": true},
+  "CIVIL": {"camera_index": 0, "enabled": true}
+}

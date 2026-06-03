@@ -1,0 +1,115 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}{{ dept.name }} — Department View{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('principal', 'dashboard', principal) }}
+<div class="main-content">
+  {{ topbar(dept.name + ' Department', 'principal') }}
+  <div class="page-content">
+
+    <!-- HOD Contact Info -->
+    {% if hod %}
+    <div class="contact-card glass" style="margin-bottom:0;">
+      <div class="contact-avatar">{{ hod.name[0] }}</div>
+      <div class="contact-info">
+        <strong>{{ hod.name }}</strong>
+        <span>HOD — {{ dept.name }}</span>
+        {% if hod.email %}<a href="mailto:{{ hod.email }}"><i class="fa fa-envelope"></i> {{ hod.email }}</a>{% endif %}
+        {% if hod.phone %}<span> · <i class="fa fa-phone"></i> {{ hod.phone }}</span>{% endif %}
+      </div>
+      <a href="{{ url_for('principal.contact_hod') }}" class="btn btn-outline btn-sm" style="margin-left:auto;">
+        <i class="fa fa-comments"></i> Contact HOD
+      </a>
+    </div>
+    {% endif %}
+
+    <!-- Staff Filter -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-chalkboard-teacher"></i> Staff
+          <span class="section-badge" style="margin-left:8px;">{{ staff_list|length }}</span>
+        </h3>
+        <div class="filter-tabs" style="margin-left:auto;">
+          <a href="{{ url_for('principal.dept_view', dept_id=dept.id, qual='all') }}"
+             class="filter-tab {% if qual=='all' %}active{% endif %}">
+            All <span class="filter-tab-count">{{ counts.BE + counts.ME + counts.PhD }}</span>
+          </a>
+          <a href="{{ url_for('principal.dept_view', dept_id=dept.id, qual='BE') }}"
+             class="filter-tab {% if qual=='BE' %}active{% endif %}"
+             title="Click BE → shows ME + PhD">
+            BE→ <span class="filter-tab-count">{{ counts.BE }}</span>
+          </a>
+          <a href="{{ url_for('principal.dept_view', dept_id=dept.id, qual='ME') }}"
+             class="filter-tab {% if qual=='ME' %}active{% endif %}"
+             title="Click ME → shows PhD">
+            ME→ <span class="filter-tab-count">{{ counts.ME }}</span>
+          </a>
+          <a href="{{ url_for('principal.dept_view', dept_id=dept.id, qual='PhD') }}"
+             class="filter-tab {% if qual=='PhD' %}active{% endif %}">
+            PhD <span class="filter-tab-count">{{ counts.PhD }}</span>
+          </a>
+        </div>
+      </div>
+      {% if qual != 'all' %}
+      <div style="padding:8px 20px; font-size:0.8rem; color:var(--text-muted);">
+        {% if qual=='BE' %}Showing: ME + PhD staff (Higher than BE)
+        {% elif qual=='ME' %}Showing: PhD staff (Higher than ME)
+        {% else %}Showing: PhD staff{% endif %}
+      </div>
+      {% endif %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead><tr><th>#</th><th>Username</th><th>Name</th><th>Qualification</th><th>Phone</th></tr></thead>
+          <tbody>
+            {% for s in staff_list %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><code style="color:var(--accent-3); font-size:0.85rem;">{{ s.username }}</code></td>
+              <td>{{ s.name }}</td>
+              <td><span class="role-badge {% if s.qualification=='PhD' %}role-principal{% elif s.qualification=='ME' %}role-hod{% else %}role-staff{% endif %}">{{ s.qualification }}</span></td>
+              <td>{{ s.phone or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty-row">No staff found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Students -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-users"></i> Students</h3>
+        <div class="filter-tabs">
+          <a href="{{ url_for('principal.dept_view', dept_id=dept.id, section='all') }}" class="filter-tab {% if section=='all' %}active{% endif %}">All</a>
+          <a href="{{ url_for('principal.dept_view', dept_id=dept.id, section='A') }}" class="filter-tab {% if section=='A' %}active{% endif %}">Section A</a>
+          <a href="{{ url_for('principal.dept_view', dept_id=dept.id, section='B') }}" class="filter-tab {% if section=='B' %}active{% endif %}">Section B</a>
+        </div>
+        <span class="section-badge" style="margin-left:auto;">{{ students|length }}</span>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead><tr><th>#</th><th>Roll No</th><th>Name</th><th>Section</th><th>Phone</th></tr></thead>
+          <tbody>
+            {% for stu in students %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><b>{{ stu.roll_no }}</b></td>
+              <td>{{ stu.name }}</td>
+              <td>{{ stu.section }}</td>
+              <td>{{ stu.phone or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty-row">No students found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

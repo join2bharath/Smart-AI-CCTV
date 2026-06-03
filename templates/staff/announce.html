@@ -1,0 +1,46 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Announcements — College CMS{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+{% block body %}
+{{ sidebar('staff', 'announce', staff, dept) }}
+<div class="main-content">
+  {{ topbar('Announcements', 'staff') }}
+  <div class="page-content">
+    <div class="dash-two-col">
+      <!-- Post Form -->
+      <div class="section-card">
+        <div class="section-header"><h3><i class="fa fa-pen"></i> Post Announcement</h3></div>
+        <form method="POST" action="{{ url_for('staff.announce') }}" class="ann-form">
+          <div class="form-group">
+            <label>Title</label>
+            <input type="text" name="title" class="form-control" placeholder="Announcement title…" required/>
+          </div>
+          <div class="form-group">
+            <label>Message</label>
+            <textarea name="content" class="form-control" rows="5" placeholder="Write your announcement…" required></textarea>
+          </div>
+          <div class="form-note"><i class="fa fa-info-circle"></i> Visible to <b>{{ dept.name }}</b> students only.</div>
+          <button type="submit" class="btn-primary"><i class="fa fa-paper-plane"></i> Post Announcement</button>
+        </form>
+      </div>
+
+      <!-- Recent Posts -->
+      <div class="section-card">
+        <div class="section-header"><h3><i class="fa fa-list"></i> My Announcements</h3></div>
+        <div class="ann-list">
+          {% for a in announcements %}
+          <div class="ann-item">
+            <div class="ann-title">{{ a.title }}</div>
+            <div class="ann-body">{{ a.content }}</div>
+            <div class="ann-meta"><i class="fa fa-clock"></i> {{ a.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
+          </div>
+          {% else %}
+          <div class="empty-ann"><i class="fa fa-inbox"></i> No announcements yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

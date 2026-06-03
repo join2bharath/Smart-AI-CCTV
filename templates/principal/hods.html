@@ -1,0 +1,55 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}HODs Directory — Principal{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('principal', 'hods', principal) }}
+<div class="main-content">
+  {{ topbar('HOD Directory', 'principal') }}
+  <div class="page-content">
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:18px;">
+      {% for hod in hod_list %}
+      <div class="contact-card" style="flex-direction:column; align-items:flex-start; gap:12px;">
+        <div style="display:flex; align-items:center; gap:14px; width:100%;">
+          <div class="contact-avatar">{{ hod.name[0] }}</div>
+          <div class="contact-info" style="flex:1;">
+            <strong>{{ hod.name }}</strong>
+            <span class="role-badge role-hod" style="display:inline-block; margin-top:4px;">HOD@{{ '%02d'|format(hod.id) }}</span>
+          </div>
+        </div>
+        <div style="width:100%; display:flex; flex-direction:column; gap:6px; font-size:0.85rem;">
+          <div style="color:var(--text-secondary);">
+            <i class="fa fa-building" style="color:var(--accent); width:18px;"></i>
+            {% if hod.dept_id and dept_map.get(hod.dept_id) %}
+              {{ dept_map[hod.dept_id] }} Department
+            {% else %}
+              <span style="color:var(--text-muted);">No department assigned</span>
+            {% endif %}
+          </div>
+          {% if hod.phone %}
+          <div style="color:var(--text-secondary);">
+            <i class="fa fa-phone" style="color:var(--accent); width:18px;"></i> {{ hod.phone }}
+          </div>
+          {% endif %}
+          {% if hod.email %}
+          <div>
+            <i class="fa fa-envelope" style="color:var(--accent); width:18px;"></i>
+            <a href="mailto:{{ hod.email }}" style="color:var(--accent-3);">{{ hod.email }}</a>
+          </div>
+          {% endif %}
+        </div>
+        <a href="{{ url_for('principal.contact_hod') }}?hod={{ hod.id }}"
+           class="btn btn-outline btn-sm w-100" style="justify-content:center;">
+          <i class="fa fa-comments"></i> Contact HOD
+        </a>
+      </div>
+      {% else %}
+      <div class="empty-ann"><i class="fa fa-info-circle"></i> No HODs found.</div>
+      {% endfor %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}

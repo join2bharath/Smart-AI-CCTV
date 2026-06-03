@@ -1,0 +1,161 @@
+{% macro sidebar(role, active, user, dept=None, alert_count=0) %}
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">
+      <i class="fa fa-graduation-cap"></i>
+      <span>College<b>CMS</b></span>
+    </div>
+    <button class="sidebar-close" onclick="toggleSidebar()"><i class="fa fa-times"></i></button>
+  </div>
+
+  <div class="sidebar-user">
+    <div class="sidebar-avatar">
+      {% if role == 'student' and user.photo %}
+        <img src="{{ url_for('static', filename='img/' + user.photo) }}" alt="Avatar"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <span style="display:none" class="avatar-fallback">{{ user.name[0] }}</span>
+      {% else %}
+        <span class="avatar-fallback">{{ user.name[0] }}</span>
+      {% endif %}
+    </div>
+    <div class="sidebar-user-info">
+      <strong>{{ user.name }}</strong>
+      <span class="role-badge role-{{ role }}">
+        {% if role=='student' %}Student
+        {% elif role=='staff' %}Staff
+        {% elif role=='hod' %}HOD
+        {% else %}Principal{% endif %}
+      </span>
+      {% if dept %}<small>{{ dept.name }}</small>{% endif %}
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    {% if role == 'student' %}
+      <a href="{{ url_for('student.dashboard') }}" class="nav-item {% if active=='dashboard' %}active{% endif %}">
+        <i class="fa fa-home"></i><span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('student.attendance') }}" class="nav-item {% if active=='attendance' %}active{% endif %}">
+        <i class="fa fa-calendar-check"></i><span>My Attendance</span>
+      </a>
+    {% endif %}
+
+    {% if role == 'staff' %}
+      <a href="{{ url_for('staff.dashboard') }}" class="nav-item {% if active=='dashboard' %}active{% endif %}">
+        <i class="fa fa-home"></i><span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('staff.attendance') }}" class="nav-item {% if active=='attendance' %}active{% endif %}">
+        <i class="fa fa-calendar-check"></i><span>Attendance</span>
+      </a>
+      <a href="{{ url_for('staff.marks') }}" class="nav-item {% if active=='marks' %}active{% endif %}">
+        <i class="fa fa-chart-bar"></i><span>Marks</span>
+      </a>
+      <a href="{{ url_for('staff.announce') }}" class="nav-item {% if active=='announce' %}active{% endif %}">
+        <i class="fa fa-bullhorn"></i><span>Announcements</span>
+      </a>
+      <a href="{{ url_for('staff.camera') }}" class="nav-item {% if active=='camera' %}active{% endif %}">
+        <i class="fa fa-video"></i><span>Camera</span>
+        {% if alert_count > 0 %}<span class="badge-count">{{ alert_count }}</span>{% endif %}
+      </a>
+    {% endif %}
+
+    {% if role == 'hod' %}
+      <a href="{{ url_for('hod.dashboard') }}" class="nav-item {% if active=='dashboard' %}active{% endif %}">
+        <i class="fa fa-home"></i><span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('hod.students') }}" class="nav-item {% if active=='students' %}active{% endif %}">
+        <i class="fa fa-users"></i><span>Students</span>
+      </a>
+      <a href="{{ url_for('hod.staff_list') }}" class="nav-item {% if active=='staff' %}active{% endif %}">
+        <i class="fa fa-chalkboard-teacher"></i><span>Staff</span>
+      </a>
+      <a href="{{ url_for('hod.marks') }}" class="nav-item {% if active=='marks' %}active{% endif %}">
+        <i class="fa fa-chart-bar"></i><span>Marks</span>
+      </a>
+      <a href="{{ url_for('hod.attendance') }}" class="nav-item {% if active=='attendance' %}active{% endif %}">
+        <i class="fa fa-calendar-check"></i><span>Attendance</span>
+      </a>
+      <a href="{{ url_for('hod.announce') }}" class="nav-item {% if active=='announce' %}active{% endif %}">
+        <i class="fa fa-bullhorn"></i><span>Announcements</span>
+      </a>
+      <a href="{{ url_for('hod.camera') }}" class="nav-item {% if active=='camera' %}active{% endif %}">
+        <i class="fa fa-video"></i><span>Camera</span>
+        {% if alert_count > 0 %}<span class="badge-count">{{ alert_count }}</span>{% endif %}
+      </a>
+      <a href="{{ url_for('hod.alerts') }}" class="nav-item {% if active=='alerts' %}active{% endif %}">
+        <i class="fa fa-bell"></i><span>Alerts</span>
+        {% if alert_count > 0 %}<span class="badge-count">{{ alert_count }}</span>{% endif %}
+      </a>
+    {% endif %}
+
+    {% if role == 'principal' %}
+      <a href="{{ url_for('principal.dashboard') }}" class="nav-item {% if active=='dashboard' %}active{% endif %}">
+        <i class="fa fa-home"></i><span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('principal.all_staff') }}" class="nav-item {% if active=='staff' %}active{% endif %}">
+        <i class="fa fa-chalkboard-teacher"></i><span>All Staff</span>
+      </a>
+      <a href="{{ url_for('principal.hods') }}" class="nav-item {% if active=='hods' %}active{% endif %}">
+        <i class="fa fa-user-tie"></i><span>HODs</span>
+      </a>
+      <a href="{{ url_for('principal.announce') }}" class="nav-item {% if active=='announce' %}active{% endif %}">
+        <i class="fa fa-bullhorn"></i><span>Announcements</span>
+      </a>
+      <a href="{{ url_for('principal.cameras') }}" class="nav-item {% if active=='cameras' %}active{% endif %}">
+        <i class="fa fa-video"></i><span>All Cameras</span>
+        {% if alert_count > 0 %}<span class="badge-count">{{ alert_count }}</span>{% endif %}
+      </a>
+      <a href="{{ url_for('principal.contact_hod') }}" class="nav-item {% if active=='contact_hod' %}active{% endif %}">
+        <i class="fa fa-comments"></i><span>Contact HOD</span>
+      </a>
+    {% endif %}
+  </nav>
+
+  <div class="sidebar-footer">
+    <a href="{{ url_for('auth.logout') }}" class="nav-item logout-btn">
+      <i class="fa fa-sign-out-alt"></i><span>Logout</span>
+    </a>
+  </div>
+</aside>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+{% endmacro %}
+
+{% macro topbar(title, role, alert_count=0, notif_api='') %}
+<header class="topbar">
+  <button class="hamburger" onclick="toggleSidebar()"><i class="fa fa-bars"></i></button>
+  <h2 class="topbar-title">{{ title }}</h2>
+  <div class="topbar-actions">
+    {% if notif_api %}
+    <button class="notif-btn" id="notifBtn">
+      <i class="fa fa-bell"></i>
+      <span class="notif-badge" id="notifBadge" style="{% if alert_count == 0 %}display:none{% endif %}">
+        {{ alert_count }}
+      </span>
+    </button>
+    <script>
+      (function poll() {
+        setTimeout(function() {
+          fetch('{{ notif_api }}').then(r => r.json()).then(d => {
+            const b = document.getElementById('notifBadge');
+            if (d.count > 0) { b.textContent = d.count; b.style.display = 'flex'; }
+            else b.style.display = 'none';
+          }).catch(()=>{});
+          poll();
+        }, 30000);
+      })();
+    </script>
+    {% endif %}
+    <div class="topbar-time" id="topbarTime"></div>
+  </div>
+</header>
+<script>
+  (function tick() {
+    const el = document.getElementById('topbarTime');
+    if (el) {
+      const now = new Date();
+      el.textContent = now.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
+    }
+    setTimeout(tick, 1000);
+  })();
+</script>
+{% endmacro %}

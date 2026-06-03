@@ -1,0 +1,97 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}All Cameras — Principal{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{% set total_alerts = alerts|selectattr('acknowledged','eq',False)|list|length %}
+{{ sidebar('principal', 'cameras', principal, None, total_alerts) }}
+<div class="main-content">
+  {{ topbar('Camera Alerts — All Departments', 'principal', total_alerts, url_for('principal.notif_count')) }}
+  <div class="page-content">
+
+    <!-- Live Laptop Camera Feed Panel -->
+    {% if dept_id != 'all' %}
+      {% for d in departments %}
+        {% if d.id|string == dept_id %}
+        <div class="section-card">
+          <div class="section-header">
+            <h3><i class="fa fa-video"></i> {{ d.name }} Department Camera — Live Feed</h3>
+            <span class="camera-status-badge live">LIVE</span>
+          </div>
+          <div style="padding:16px; text-align:center;">
+            <div class="camera-feed-area" style="max-height:420px; display:inline-block;">
+              <img src="{{ url_for('video_feed', dept_name=d.name) }}" alt="Live Laptop Camera Feed" style="width:100%; max-width:640px; border-radius:8px; border:3px solid var(--border); box-shadow: 0 4px 15px rgba(0,0,0,0.3);"/>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-video"></i> Live Camera Monitor</h3>
+      </div>
+      <div style="padding:20px; text-align:center; color:var(--text-muted);">
+        <i class="fa fa-info-circle" style="font-size:1.5rem; margin-bottom:8px; display:block; color:var(--accent-blue);"></i>
+        Select a department tab below to view its live camera feed with real-time AI detection.
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Dept Filter -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-video"></i> Camera Monitor — All Departments</h3>
+        <span class="section-badge">{{ alerts|length }} alerts</span>
+      </div>
+      <div style="padding:12px 20px; border-bottom:1px solid var(--border);">
+        <div class="filter-tabs">
+          <a href="{{ url_for('principal.cameras', dept_id='all') }}" class="filter-tab {% if dept_id=='all' %}active{% endif %}">All Departments</a>
+          {% for d in departments %}
+          <a href="{{ url_for('principal.cameras', dept_id=d.id) }}" class="filter-tab {% if dept_id==d.id|string %}active{% endif %}">{{ d.name }}</a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
+        {% for alert in alerts %}
+        <div class="alert-card {% if not alert.acknowledged %}unread{% endif %}" id="alert-row-{{ alert.id }}">
+          <div class="alert-icon {{ alert.alert_type }}">
+            {% if alert.alert_type == 'fire' %}<i class="fa fa-fire"></i>
+            {% elif alert.alert_type == 'fighting' %}<i class="fa fa-fist-raised"></i>
+            {% elif alert.alert_type == 'sleeping' %}<i class="fa fa-bed"></i>
+            {% elif alert.alert_type == 'eating' %}<i class="fa fa-utensils"></i>
+            {% elif alert.alert_type == 'playing' %}<i class="fa fa-gamepad"></i>
+            {% elif alert.alert_type == 'dancing' %}<i class="fa fa-music"></i>
+            {% else %}<i class="fa fa-video"></i>{% endif %}
+          </div>
+          <div class="alert-body">
+            <div class="alert-type">
+              <span class="alert-type-badge atb-{{ alert.alert_type }}">{{ alert.alert_type|title }}</span>
+              <span class="section-badge" style="margin-left:6px; font-size:0.7rem;">{{ alert.department.name }}</span>
+              {% if not alert.acknowledged %}<span style="color:var(--accent-red); font-size:0.72rem; margin-left:6px;">● NEW</span>{% endif %}
+            </div>
+            <div class="alert-time"><i class="fa fa-clock"></i> {{ alert.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
+            <div class="alert-dept"><i class="fa fa-video"></i> Camera #{{ alert.camera_index }}</div>
+          </div>
+          {% if alert.snapshot_path %}
+          <img class="snapshot-img" src="{{ url_for('static', filename=alert.snapshot_path) }}" alt="Snapshot" onerror="this.style.display='none'">
+          {% endif %}
+          {% if not alert.acknowledged %}
+          <button class="btn btn-outline btn-sm ack-btn" onclick="ackAlert({{ alert.id }}, '/principal/alerts/ack/')">
+            <i class="fa fa-check"></i> Ack
+          </button>
+          {% else %}
+          <span style="font-size:0.78rem; color:var(--text-muted);">✓ Done</span>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="empty-ann"><i class="fa fa-shield-alt"></i> No camera alerts.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

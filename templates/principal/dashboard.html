@@ -1,0 +1,156 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Principal Dashboard — College CMS{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('principal', 'dashboard', principal, None, total_alerts) }}
+<div class="main-content">
+  {{ topbar('Principal Dashboard', 'principal', total_alerts, url_for('principal.notif_count')) }}
+  <div class="page-content">
+
+    <!-- Principal Profile -->
+    <div class="profile-card glass">
+      <div class="profile-avatar">
+        <span class="avatar-fallback" style="width:100px;height:100px;font-size:2rem;">{{ principal.name[0] }}</span>
+        <div class="avatar-ring"></div>
+      </div>
+      <div class="profile-info">
+        <h2>{{ principal.name }}</h2>
+        <span class="role-badge role-principal">Principal</span>
+        <div class="profile-meta">
+          <div class="meta-item"><i class="fa fa-phone"></i><span>{{ principal.phone or 'N/A' }}</span></div>
+          <div class="meta-item"><i class="fa fa-envelope"></i><span>{{ principal.email or 'N/A' }}</span></div>
+          <div class="meta-item"><i class="fa fa-university"></i><span>All Departments Access</span></div>
+          {% if total_alerts > 0 %}
+          <div class="meta-item"><i class="fa fa-bell" style="color:var(--accent-red)"></i>
+            <span style="color:var(--accent-red)"><b>{{ total_alerts }} college-wide alert{{ 's' if total_alerts != 1 }}</b></span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- College-Wide Stats -->
+    <div class="stats-grid">
+      {% set total_students = dept_stats|map(attribute='students')|sum %}
+      {% set total_staff = dept_stats|map(attribute='staff')|sum %}
+      <div class="stat-card">
+        <div class="stat-icon indigo"><i class="fa fa-users"></i></div>
+        <div class="stat-body">
+          <div class="stat-value">{{ total_students }}</div>
+          <div class="stat-label">Total Students</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green"><i class="fa fa-chalkboard-teacher"></i></div>
+        <div class="stat-body">
+          <div class="stat-value">{{ total_staff }}</div>
+          <div class="stat-label">Total Staff</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon cyan"><i class="fa fa-building"></i></div>
+        <div class="stat-body">
+          <div class="stat-value">{{ dept_stats|length }}</div>
+          <div class="stat-label">Departments</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon {% if total_alerts > 0 %}red{% else %}green{% endif %}"><i class="fa fa-bell"></i></div>
+        <div class="stat-body">
+          <div class="stat-value">{{ total_alerts }}</div>
+          <div class="stat-label">Pending Alerts</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Department Overview Cards -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-building"></i> Department Overview</h3>
+        <span class="section-badge">{{ dept_stats|length }} Departments</span>
+      </div>
+      <div class="dept-grid" style="padding:16px;">
+        {% set dept_classes = ['it','cse','aids','ece','eee','civil'] %}
+        {% for ds in dept_stats %}
+        {% set dc = dept_classes[loop.index0] if loop.index0 < dept_classes|length else 'it' %}
+        <div class="dept-card {{ dc }}" data-href="{{ url_for('principal.dept_view', dept_id=ds.dept.id) }}">
+          {% if ds.alerts > 0 %}
+          <div class="dept-alert-badge">{{ ds.alerts }}</div>
+          {% endif %}
+          <div class="dept-card-header">
+            <span class="dept-badge">{{ ds.dept.name }}</span>
+          </div>
+          <div class="dept-card-stats">
+            <div class="dept-stat">
+              <div class="dept-stat-val text-accent">{{ ds.students }}</div>
+              <div class="dept-stat-lbl">Students</div>
+            </div>
+            <div class="dept-stat">
+              <div class="dept-stat-val text-green">{{ ds.staff }}</div>
+              <div class="dept-stat-lbl">Staff</div>
+            </div>
+            <div class="dept-stat">
+              <div class="dept-stat-val {% if ds.alerts > 0 %}text-red{% else %}text-green{% endif %}">{{ ds.alerts }}</div>
+              <div class="dept-stat-lbl">Alerts</div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Recent Alerts + Announcements Row -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px;">
+
+      <div class="section-card">
+        <div class="section-header">
+          <h3><i class="fa fa-exclamation-triangle" style="color:var(--accent-red)"></i> Recent Alerts</h3>
+          <a href="{{ url_for('principal.cameras') }}" class="btn btn-outline btn-sm">View All</a>
+        </div>
+        <div style="padding:12px; display:flex; flex-direction:column; gap:8px;">
+          {% for alert in recent_alerts %}
+          <div class="alert-card {% if not alert.acknowledged %}unread{% endif %}">
+            <div class="alert-icon {{ alert.alert_type }}">
+              {% if alert.alert_type == 'fire' %}<i class="fa fa-fire"></i>
+              {% elif alert.alert_type == 'fighting' %}<i class="fa fa-fist-raised"></i>
+              {% elif alert.alert_type == 'sleeping' %}<i class="fa fa-bed"></i>
+              {% else %}<i class="fa fa-video"></i>{% endif %}
+            </div>
+            <div class="alert-body">
+              <div class="alert-type"><span class="alert-type-badge atb-{{ alert.alert_type }}">{{ alert.alert_type|title }}</span></div>
+              <div class="alert-dept">{{ alert.department.name }}</div>
+              <div class="alert-time">{{ alert.created_at.strftime('%d %b, %I:%M %p') }}</div>
+            </div>
+          </div>
+          {% else %}
+          <div class="empty-ann"><i class="fa fa-shield-alt"></i> No alerts.</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-header">
+          <h3><i class="fa fa-bullhorn"></i> Recent Announcements</h3>
+          <a href="{{ url_for('principal.announce') }}" class="btn btn-outline btn-sm">Post New</a>
+        </div>
+        <div style="padding:12px; display:flex; flex-direction:column; gap:8px;">
+          {% for a in recent_ann %}
+          <div class="ann-item">
+            <div class="ann-title">{{ a.title }}</div>
+            <div class="ann-meta">
+              <span class="role-badge role-{{ a.posted_by_role }}" style="font-size:0.65rem;">{{ a.posted_by_role|title }}</span>
+              · {{ a.created_at.strftime('%d %b %Y') }}
+            </div>
+          </div>
+          {% else %}
+          <div class="empty-ann"><i class="fa fa-inbox"></i> No announcements.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

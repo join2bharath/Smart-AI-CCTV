@@ -1,0 +1,114 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}My Attendance — College CMS{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('student', 'attendance', student, dept) }}
+<div class="main-content">
+  {{ topbar('My Attendance', 'student') }}
+  <div class="page-content">
+
+    <!-- Stats Row -->
+    <div class="stats-grid">
+      <div class="stat-card glass">
+        <div class="stat-icon" style="background:linear-gradient(135deg,#6366f1,#818cf8)">
+          <i class="fa fa-calendar-alt"></i>
+        </div>
+        <div class="stat-info">
+          <span class="stat-num">{{ total_days }}</span>
+          <span class="stat-label">Total Days</span>
+        </div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-icon" style="background:linear-gradient(135deg,#10b981,#34d399)">
+          <i class="fa fa-check-circle"></i>
+        </div>
+        <div class="stat-info">
+          <span class="stat-num">{{ present_days }}</span>
+          <span class="stat-label">Present</span>
+        </div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-icon" style="background:linear-gradient(135deg,#ef4444,#f87171)">
+          <i class="fa fa-times-circle"></i>
+        </div>
+        <div class="stat-info">
+          <span class="stat-num">{{ absent_days }}</span>
+          <span class="stat-label">Absent</span>
+        </div>
+      </div>
+      <div class="stat-card glass">
+        {% if percent >= 75.0 %}
+          {% set pct_color = 'linear-gradient(135deg,#10b981,#34d399)' %}
+        {% elif percent >= 65.0 %}
+          {% set pct_color = 'linear-gradient(135deg,#f59e0b,#fbbf24)' %}
+        {% else %}
+          {% set pct_color = 'linear-gradient(135deg,#ef4444,#f87171)' %}
+        {% endif %}
+        <div class="stat-icon" style="background:{{ pct_color }}">
+          <i class="fa fa-percent"></i>
+        </div>
+        <div class="stat-info">
+          <span class="stat-num">{{ percent }}%</span>
+          <span class="stat-label">Attendance</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detailed Log -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-history"></i> Attendance Log</h3>
+        {% if percent >= 75.0 %}
+          <span class="section-badge badge-success"><i class="fa fa-check"></i> Eligible for Exams</span>
+        {% else %}
+          <span class="section-badge badge-danger"><i class="fa fa-exclamation-triangle"></i> Shortage of Attendance</span>
+        {% endif %}
+      </div>
+      
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Marked By</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in records %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><b>{{ r.date.strftime('%d %B %Y') }}</b></td>
+              <td>
+                {% if r.status == 'P' %}
+                  <span class="pf-badge pass">Present</span>
+                {% else %}
+                  <span class="pf-badge fail">Absent</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.marked_by_staff %}
+                  {{ r.marked_by_staff.name }}
+                {% else %}
+                  System
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" class="empty-row">
+                <i class="fa fa-info-circle"></i> No attendance records found.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

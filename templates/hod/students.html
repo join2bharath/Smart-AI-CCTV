@@ -1,0 +1,65 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Students — {{ dept.name }} HOD{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('hod', 'students', hod, dept) }}
+<div class="main-content">
+  {{ topbar('Students — ' + dept.name, 'hod') }}
+  <div class="page-content">
+
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-users"></i> {{ dept.name }} Students</h3>
+        <div class="filter-tabs">
+          <a href="{{ url_for('hod.students', section='all') }}" class="filter-tab {% if section=='all' %}active{% endif %}">All <span class="filter-tab-count">{{ students|length }}</span></a>
+          <a href="{{ url_for('hod.students', section='A') }}" class="filter-tab {% if section=='A' %}active{% endif %}">Section A</a>
+          <a href="{{ url_for('hod.students', section='B') }}" class="filter-tab {% if section=='B' %}active{% endif %}">Section B</a>
+        </div>
+        <div class="search-box" style="margin-left:auto;">
+          <i class="fa fa-search"></i>
+          <input type="text" id="searchInput" placeholder="Search students…">
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="studentsTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Photo</th>
+              <th>Roll No</th>
+              <th>Name</th>
+              <th>Section</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for stu in students %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>
+                <img src="{{ stu.photo if stu.photo.startswith('http') else url_for('static', filename='img/' + (stu.photo or 'default_student.png')) }}" alt="Photo" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-color);">
+              </td>
+              <td><b>{{ stu.roll_no }}</b></td>
+              <td>{{ stu.name }}</td>
+              <td><span class="section-badge" style="margin-left:0">{{ stu.section }}</span></td>
+              <td>{{ stu.phone or '—' }}</td>
+              <td style="font-size:0.8rem;">{{ stu.email or '—' }}</td>
+              <td>
+                <a href="{{ url_for('hod.edit_student', student_id=stu.id) }}" class="btn btn-primary" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;"><i class="fa fa-edit"></i> Edit</a>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="empty-row"><i class="fa fa-info-circle"></i> No students found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>liveSearch('searchInput', 'studentsTable');</script>
+{% endblock %}

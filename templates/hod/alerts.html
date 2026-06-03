@@ -1,0 +1,59 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Camera Alerts — {{ dept.name }} HOD{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{% set alert_count = alerts|selectattr('acknowledged','eq',False)|list|length %}
+{{ sidebar('hod', 'alerts', hod, dept, alert_count) }}
+<div class="main-content">
+  {{ topbar('Camera Alerts', 'hod', alert_count, url_for('hod.notif_count')) }}
+  <div class="page-content">
+
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-bell"></i> All Camera Alerts — {{ dept.name }}</h3>
+        <span class="section-badge">{{ alerts|length }} total</span>
+      </div>
+      <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
+        {% for alert in alerts %}
+        <div class="alert-card {% if not alert.acknowledged %}unread{% endif %}" id="alert-row-{{ alert.id }}">
+          <div class="alert-icon {{ alert.alert_type }}">
+            {% if alert.alert_type == 'fire' %}<i class="fa fa-fire"></i>
+            {% elif alert.alert_type == 'fighting' %}<i class="fa fa-fist-raised"></i>
+            {% elif alert.alert_type == 'sleeping' %}<i class="fa fa-bed"></i>
+            {% elif alert.alert_type == 'eating' %}<i class="fa fa-utensils"></i>
+            {% elif alert.alert_type == 'playing' %}<i class="fa fa-gamepad"></i>
+            {% elif alert.alert_type == 'dancing' %}<i class="fa fa-music"></i>
+            {% else %}<i class="fa fa-video"></i>{% endif %}
+          </div>
+          <div class="alert-body">
+            <div class="alert-type">
+              <span class="alert-type-badge atb-{{ alert.alert_type }}">{{ alert.alert_type|title }}</span>
+              {% if not alert.acknowledged %}<span style="color:var(--accent-red); font-size:0.72rem; margin-left:6px;">● NEW</span>{% endif %}
+            </div>
+            <div class="alert-time"><i class="fa fa-clock"></i> {{ alert.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
+            <div class="alert-dept"><i class="fa fa-video"></i> Camera #{{ alert.camera_index }}</div>
+          </div>
+          {% if alert.snapshot_path %}
+          <img class="snapshot-img" src="{{ url_for('static', filename=alert.snapshot_path) }}" alt="Snapshot"
+               title="Click to view" onclick="this.style.width='200px'"
+               onerror="this.style.display='none'">
+          {% endif %}
+          {% if not alert.acknowledged %}
+          <button class="btn btn-outline btn-sm ack-btn"
+                  onclick="ackAlert({{ alert.id }}, '/hod/alerts/ack/')">
+            <i class="fa fa-check"></i> Acknowledge
+          </button>
+          {% else %}
+          <span class="btn btn-sm" style="color:var(--text-muted); cursor:default;">✓ Done</span>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="empty-ann"><i class="fa fa-shield-alt"></i> No camera alerts.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

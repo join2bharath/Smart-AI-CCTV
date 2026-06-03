@@ -1,0 +1,74 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Contact HOD — Principal{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('principal', 'contact_hod', principal) }}
+<div class="main-content">
+  {{ topbar('Contact HOD', 'principal') }}
+  <div class="page-content">
+
+    {% if msg_sent %}
+    <div style="text-align:center; padding:20px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:var(--radius); color:#6ee7b7;">
+      <i class="fa fa-check-circle" style="font-size:2rem; display:block; margin-bottom:8px;"></i>
+      Message sent successfully! The HOD will see it in their department announcements.
+    </div>
+    {% endif %}
+
+    <!-- Message Form -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-comments"></i> Send Message to HOD</h3>
+      </div>
+      <div class="ann-form-card">
+        <form method="POST">
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            <div>
+              <label class="form-label">Select HOD / Department</label>
+              <select name="hod_id" class="form-control" required>
+                <option value="">— Choose HOD —</option>
+                {% for hod in hods %}
+                <option value="{{ hod.id }}" {% if request.args.get('hod') == hod.id|string %}selected{% endif %}>
+                  {{ hod.name }}{% if hod.dept_id %} ({{ hod.department.name if hod.department else 'Dept #' + hod.dept_id|string }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Message</label>
+              <textarea name="message" class="form-control" rows="6"
+                placeholder="Write your message to the HOD…" required></textarea>
+            </div>
+            <div>
+              <button class="btn btn-primary" type="submit">
+                <i class="fa fa-paper-plane"></i> Send Message
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- HOD List -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-user-tie"></i> HOD Directory</h3>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:14px; padding:16px;">
+        {% for hod in hods %}
+        <div class="contact-card">
+          <div class="contact-avatar">{{ hod.name[0] }}</div>
+          <div class="contact-info">
+            <strong>{{ hod.name }}</strong>
+            <span>{% if hod.department %}{{ hod.department.name }}{% else %}No Dept{% endif %}</span>
+            {% if hod.email %}<a href="mailto:{{ hod.email }}">{{ hod.email }}</a>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

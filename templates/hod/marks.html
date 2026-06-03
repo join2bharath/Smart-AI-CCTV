@@ -1,0 +1,69 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Marks — {{ dept.name }} HOD{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('hod', 'marks', hod, dept) }}
+<div class="main-content">
+  {{ topbar('Internal Marks — ' + dept.name, 'hod') }}
+  <div class="page-content">
+
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-chart-bar"></i> Internal Marks (Read-only)</h3>
+        <div class="filter-tabs">
+          <a href="{{ url_for('hod.marks', section='A') }}" class="filter-tab {% if section=='A' %}active{% endif %}">Section A</a>
+          <a href="{{ url_for('hod.marks', section='B') }}" class="filter-tab {% if section=='B' %}active{% endif %}">Section B</a>
+        </div>
+        <span class="section-badge" style="margin-left:auto;">{{ students|length }} Students</span>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table marks-table">
+          <thead>
+            <tr>
+              <th>Roll No</th>
+              <th>Name</th>
+              {% for subj_id, mk in marks_dict[students[0].id].items() if students %}
+              {% for sub in subjects %}{% if sub.id == subj_id %}
+              <th colspan="3" style="text-align:center; border-left:1px solid var(--border)">{{ sub.name }}</th>
+              {% endif %}{% endfor %}
+              {% endfor %}
+            </tr>
+            <tr>
+              <th></th><th></th>
+              {% for sub in subjects %}
+              <th style="border-left:1px solid var(--border)">Int-1</th>
+              <th>Int-2</th>
+              <th>Int-3</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for stu in students %}
+            <tr>
+              <td><b>{{ stu.roll_no }}</b></td>
+              <td>{{ stu.name }}</td>
+              {% for sub in subjects %}
+              {% set mk = marks_dict.get(stu.id, {}).get(sub.id) %}
+              {% for i in [1,2,3] %}
+              {% set val = mk['internal' ~ i] if mk else 0 %}
+              <td {% if loop.first %}style="border-left:1px solid var(--border)"{% endif %}>
+                <div class="mark-cell">
+                  <span class="mark-val">{{ val }}</span>
+                  <span class="pf-badge {{ 'pass' if val >= 35 else 'fail' }}">{{ 'P' if val >= 35 else 'F' }}</span>
+                </div>
+              </td>
+              {% endfor %}
+              {% endfor %}
+            </tr>
+            {% else %}
+            <tr><td colspan="20" class="empty-row">No students found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

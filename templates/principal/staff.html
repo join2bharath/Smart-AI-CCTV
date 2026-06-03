@@ -1,0 +1,81 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}All Staff — Principal{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('principal', 'staff', principal) }}
+<div class="main-content">
+  {{ topbar('All Staff', 'principal') }}
+  <div class="page-content">
+
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-chalkboard-teacher"></i> College Staff Directory</h3>
+        <span class="section-badge">{{ staff_list|length }}</span>
+      </div>
+
+      <!-- Filters -->
+      <div style="padding:14px 20px; display:flex; gap:12px; flex-wrap:wrap; border-bottom:1px solid var(--border); align-items:flex-end;">
+        <form method="GET" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+          <div>
+            <label class="form-label">Qualification Filter</label>
+            <div class="filter-tabs">
+              <a href="{{ url_for('principal.all_staff', qual='all', dept_id=dept_id) }}" class="filter-tab {% if qual=='all' %}active{% endif %}">All</a>
+              <a href="{{ url_for('principal.all_staff', qual='BE', dept_id=dept_id) }}" class="filter-tab {% if qual=='BE' %}active{% endif %}" title="Shows ME+PhD">BE →</a>
+              <a href="{{ url_for('principal.all_staff', qual='ME', dept_id=dept_id) }}" class="filter-tab {% if qual=='ME' %}active{% endif %}" title="Shows PhD">ME →</a>
+              <a href="{{ url_for('principal.all_staff', qual='PhD', dept_id=dept_id) }}" class="filter-tab {% if qual=='PhD' %}active{% endif %}">PhD</a>
+            </div>
+          </div>
+          <div>
+            <label class="form-label">Department</label>
+            <select name="dept_id" class="form-control" onchange="this.form.submit()" style="width:130px;">
+              <option value="all" {% if dept_id=='all' %}selected{% endif %}>All Depts</option>
+              {% for d in departments %}
+              <option value="{{ d.id }}" {% if dept_id==d.id|string %}selected{% endif %}>{{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <input type="hidden" name="qual" value="{{ qual }}">
+        </form>
+        <div class="search-box" style="margin-left:auto;">
+          <i class="fa fa-search"></i>
+          <input type="text" id="searchInput" placeholder="Search staff…">
+        </div>
+      </div>
+
+      {% if qual != 'all' %}
+      <div style="padding:8px 20px; font-size:0.8rem; color:var(--text-muted);">
+        {% if qual=='BE' %}📋 Filter: Showing staff with qualifications higher than BE (ME + PhD)
+        {% elif qual=='ME' %}📋 Filter: Showing staff with qualifications higher than ME (PhD only)
+        {% else %}📋 Filter: Showing PhD staff only{% endif %}
+      </div>
+      {% endif %}
+
+      <div class="table-responsive">
+        <table class="data-table" id="staffTable">
+          <thead>
+            <tr><th>#</th><th>Username</th><th>Name</th><th>Dept</th><th>Qualification</th><th>Phone</th><th>Email</th></tr>
+          </thead>
+          <tbody>
+            {% for s in staff_list %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><code style="color:var(--accent-3); font-size:0.85rem;">{{ s.username }}</code></td>
+              <td>{{ s.name }}</td>
+              <td><span class="section-badge" style="margin-left:0">{{ s.department.name }}</span></td>
+              <td><span class="role-badge {% if s.qualification=='PhD' %}role-principal{% elif s.qualification=='ME' %}role-hod{% else %}role-staff{% endif %}">{{ s.qualification }}</span></td>
+              <td>{{ s.phone or '—' }}</td>
+              <td style="font-size:0.8rem;">{{ s.email or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty-row">No staff found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>liveSearch('searchInput', 'staffTable');</script>
+{% endblock %}

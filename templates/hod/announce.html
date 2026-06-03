@@ -1,0 +1,58 @@
+{% from "macros.html" import sidebar, topbar %}
+{% extends "base.html" %}
+{% block title %}Announcements — HOD{% endblock %}
+{% block body_class %}app-layout{% endblock %}
+
+{% block body %}
+{{ sidebar('hod', 'announce', hod, dept) }}
+<div class="main-content">
+  {{ topbar('Announcements', 'hod') }}
+  <div class="page-content">
+
+    <!-- Post Form -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-bullhorn"></i> Post Announcement</h3>
+        <span class="section-badge">{{ dept.name if dept else 'N/A' }} Dept</span>
+      </div>
+      <div class="ann-form-card">
+        <form method="POST">
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            <div>
+              <label class="form-label">Title</label>
+              <input type="text" name="title" class="form-control" placeholder="Announcement title…" required>
+            </div>
+            <div>
+              <label class="form-label">Message</label>
+              <textarea name="content" class="form-control" rows="4" placeholder="Write your announcement here…" required></textarea>
+            </div>
+            <div>
+              <button class="btn btn-primary" type="submit"><i class="fa fa-paper-plane"></i> Post Announcement</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Past Announcements -->
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fa fa-history"></i> Your Announcements</h3>
+        <span class="section-badge">{{ announcements|length }}</span>
+      </div>
+      <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+        {% for a in announcements %}
+        <div class="ann-item">
+          <div class="ann-title">{{ a.title }}</div>
+          <div class="ann-body">{{ a.content }}</div>
+          <div class="ann-meta"><i class="fa fa-clock"></i> {{ a.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
+        </div>
+        {% else %}
+        <div class="empty-ann"><i class="fa fa-inbox"></i> No announcements yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
