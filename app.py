@@ -35,6 +35,8 @@ def gen_frames(dept_name):
         ALERT_COOLDOWN, EAR_THRESHOLD, EAR_CONSEC_FRAMES,
         HEAD_PITCH_FRAMES, FIGHT_IOU_THRESHOLD, POSE_VEL_THRESHOLD,
         MOBILE_CLASS_ID, HAND_RAISE_MARGIN, ALERT_ICONS,
+        FOOD_CLASS_IDS, PURE_FOOD_IDS, DRINKING_IDS,
+        EATING_WRIST_NOSE_RATIO, EATING_POSE_FRAMES,
     )
 
     # ── Department info ──────────────────────────────────────────────────────
@@ -129,6 +131,7 @@ def gen_frames(dept_name):
     ear_counters   = {}   # person_id → count
     pitch_counters = {}
     person_status  = {}   # person_id → "Active" | "Sleeping"
+    eating_pose_counters = {}  # person_idx → hand-to-mouth frame count
     last_alert     = {}
     prev_keypoints = None
     frame_count    = 0
@@ -171,6 +174,40 @@ def gen_frames(dept_name):
             sc+=1; sigs.append("gap")
         return sc, sigs
 
+    # ── Eating pose: wrist-to-nose proximity ──────────────────────────────
+    def eating_pose_score(kps, box_h):
+        """Returns True when wrist is near nose (hand-to-mouth gesture)."""
+        def kp(i):
+            if i >= len(kps): return False, None
+            x, y, c = kps[i]
+            return (True, (x, y)) if c > 0.35 else (False, None)
+
+        ok_n,  nose = kp(0)
+        ok_lw, lw   = kp(9)
+        ok_rw, rw   = kp(10)
+        ok_le, le   = kp(7)
+        ok_re, re   = kp(8)
+        ok_ls, ls   = kp(5)
+        ok_rs, rs   = kp(6)
+
+        if not ok_n or box_h < 1:
+            return False
+
+        thresh = EATING_WRIST_NOSE_RATIO * box_h
+        for (ok_w, wrist), (ok_e, elbow), (ok_s, shoulder) in [
+            ((ok_lw, lw), (ok_le, le), (ok_ls, ls)),
+            ((ok_rw, rw), (ok_re, re), (ok_rs, rs)),
+        ]:
+            if not ok_w:
+                continue
+            dist = math.sqrt((wrist[0]-nose[0])**2 + (wrist[1]-nose[1])**2)
+            if dist < thresh:
+                # Filter out hand-raise: elbow above shoulder = NOT eating
+                if ok_e and ok_s and elbow[1] < shoulder[1] - 15:
+                    continue
+                return True
+        return False
+
     LEFT_EYE  = [362, 385, 387, 263, 373, 380]
     RIGHT_EYE = [33,  160, 158, 133, 153, 144]
 
@@ -211,9 +248,20 @@ def gen_frames(dept_name):
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
                             trigger_alert(frame, "fire")
 
-                        # Food / eating
-                        if cls_id in range(39, 60):
-                            trigger_alert(frame, "eating")
+                        # ── Food / eating objects ──────────────────────────
+                        if cls_id in FOOD_CLASS_IDS:
+                            if cls_id in PURE_FOOD_IDS:
+                                fc = (0, 200, 100)   # green — real food
+                            elif cls_id in DRINKING_IDS:
+                                fc = (255, 160, 0)   # orange — drink
+                            else:
+                                fc = (100, 220, 255) # cyan — utensil
+                            flabel = yolo_det.model.names[cls_id]
+                            cv2.rectangle(frame, (x1,y1), (x2,y2), fc, 2)
+                            cv2.putText(frame, f"{flabel} {conf:.0%}",
+                                        (x1, y1-6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, fc, 2)
+                            if cls_id in PURE_FOOD_IDS or cls_id in DRINKING_IDS:
+                                trigger_alert(frame, "eating")
 
                         # Mobile phone
                         if cls_id == MOBILE_CLASS_ID:
@@ -327,7 +375,26 @@ def gen_frames(dept_name):
                     for idx, person_kps in enumerate(kp_data):
                         kps = person_kps.tolist()
 
-                        # Playing / Dancing (multi-signal)
+                        # ── Eating pose: wrist-to-nose detection ───────────────
+                        box_h = 0.0
+                        if boxes_xy is not None and idx < len(boxes_xy):
+                            box_h = float(boxes_xy[idx][3]) - float(boxes_xy[idx][1])
+
+                        eating_pose_counters.setdefault(idx, 0)
+                        if eating_pose_score(kps, box_h):
+                            eating_pose_counters[idx] += 1
+                        else:
+                            eating_pose_counters[idx] = max(0, eating_pose_counters[idx] - 1)
+
+                        if eating_pose_counters[idx] >= EATING_POSE_FRAMES:
+                            if boxes_xy is not None and idx < len(boxes_xy):
+                                bx1 = int(boxes_xy[idx][0])
+                                by1 = int(boxes_xy[idx][1])
+                                cv2.putText(frame, "EATING", (bx1, by1 - 10),
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 100), 2)
+                            trigger_alert(frame, "eating")
+
+                        # ── Playing / Dancing (multi-signal) ───────────────
                         ps, _ = playing_score(kps, w, h)
                         vel   = keypoint_velocity(kps, prev_keypoints)
                         if vel > POSE_VEL_THRESHOLD:

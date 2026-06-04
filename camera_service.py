@@ -32,9 +32,17 @@ import datetime
 import logging
 import smtplib
 from pathlib import Path
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+import threading
 from collections import deque, OrderedDict
+
+try:
+    import google.generativeai as genai
+    from PIL import Image
+    GEMINI_SDK_AVAILABLE = True
+except ImportError:
+    GEMINI_SDK_AVAILABLE = False
+    print("[!] google-generativeai or PIL not installed.")
 
 import cv2
 import numpy as np
@@ -87,11 +95,44 @@ SMTP_ENABLED  = bool(SMTP_PASSWORD)
 EAR_THRESHOLD       = 0.25      # Eye Aspect Ratio for sleep detection
 EAR_CONSEC_FRAMES   = 90        # ~3s at 30fps
 HEAD_PITCH_FRAMES   = 60        # ~2s at 30fps
-FIGHT_IOU_THRESHOLD = 0.15      # bounding-box overlap for fighting
+FIGHT_IOU_THRESHOLD = 0.45      # strict bounding-box overlap for pure-BBox fighting
 POSE_VEL_THRESHOLD  = 40.0      # pixels/frame for playing/dancing
 ALERT_COOLDOWN      = 60        # seconds between same alert type
 MOBILE_CLASS_ID     = 67        # YOLO COCO 'cell phone'
 HAND_RAISE_MARGIN   = 20        # wrist y < shoulder y - margin (pixels)
+
+# ── Eating detection ─────────────────────────────────────────────────────────
+# COCO class IDs for food items and eating utensils
+FOOD_CLASS_IDS = {
+    39,   # bottle
+    40,   # wine glass
+    41,   # cup
+    42,   # fork
+    43,   # knife
+    44,   # spoon
+    45,   # bowl
+    46,   # banana
+    47,   # apple
+    48,   # sandwich
+    49,   # orange
+    50,   # broccoli
+    51,   # carrot
+    52,   # hot dog
+    53,   # pizza
+    54,   # donut
+    55,   # cake
+    60,   # dining table  (strong eating context)
+}
+# Subset: actual food objects (higher confidence than just utensils)
+PURE_FOOD_IDS = {46, 47, 48, 49, 50, 51, 52, 53, 54, 55}
+DRINKING_IDS  = {39, 40, 41}    # bottle / glass / cup
+UTENSIL_IDS   = {42, 43, 44}    # fork / knife / spoon
+
+# Wrist-to-nose distance threshold for hand-to-mouth eating gesture
+# expressed as a fraction of the person's bounding-box height
+EATING_WRIST_NOSE_RATIO = 0.35
+# Minimum consecutive pose frames before triggering eating alert
+EATING_POSE_FRAMES      = 8
 
 # ── Alert icon mapping for log ────────────────────────────────────────────────
 ALERT_ICONS = {
@@ -107,6 +148,14 @@ ALERT_ICONS = {
     "sitting":      "🪑",
     "person":       "👤",
 }
+
+# ── Gemini Configuration ──────────────────────────────────────────────────────
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_ENABLED = bool(GEMINI_API_KEY) and GEMINI_SDK_AVAILABLE
+
+if GEMINI_ENABLED:
+    genai.configure(api_key=GEMINI_API_KEY)
+    log.info("[GEMINI] Gemini API configured successfully.")
 
 # ── Default camera config ─────────────────────────────────────────────────────
 DEFAULT_CAMERA_CONFIG = {
@@ -173,12 +222,24 @@ def insert_alert(dept_id: int, alert_type: str, snapshot_path: str, camera_index
         log.error(f"DB error (insert_alert): {e}")
 
 
-# ── Email helper ──────────────────────────────────────────────────────────────
-def send_email_alert(hod_email: str, dept_name: str, alert_type: str, snapshot_path: str):
-    """Send email notification to HOD."""
+def send_email_alert(hod_email: str | None, dept_name: str, alert_type: str, snapshot_path: str):
+    """Send email notification with photo attachment."""
     if not SMTP_ENABLED:
         log.info(f"[EMAIL] (SMTP disabled) Would send '{alert_type}' alert to {hod_email}")
         return
+        
+    recipients = []
+    if hod_email:
+        recipients.append(hod_email)
+        
+    # Send fighting, sleeping, and eating alerts to the requested mail id
+    if alert_type in ["fighting", "sleeping", "eating"]:
+        recipients.append("join2bharath2003@gmail.com")
+        
+    recipients = list(set(recipients))
+    if not recipients:
+        return
+        
     try:
         subject = f"🚨 Camera Alert: {alert_type.title()} detected in {dept_name}"
         body = f"""
@@ -189,19 +250,28 @@ Alert Type : {alert_type.upper()}
 Timestamp  : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Snapshot   : {snapshot_path}
 
-Please log in to the HOD dashboard to acknowledge this alert.
+Please log in to the HOD/Principal dashboard to acknowledge this alert.
         """
         msg = MIMEMultipart()
         msg["From"]    = SMTP_USER
-        msg["To"]      = hod_email
+        msg["To"]      = ", ".join(recipients)
         msg["Subject"] = subject
         msg.attach(MIMEText(body, "plain"))
+        
+        # Attach the photo
+        full_snap_path = Path(__file__).parent / "static" / snapshot_path
+        if full_snap_path.exists():
+            with open(full_snap_path, "rb") as f:
+                img_data = f.read()
+            image = MIMEImage(img_data, name=os.path.basename(snapshot_path))
+            image.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(snapshot_path)}"')
+            msg.attach(image)
 
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
-        log.info(f"[EMAIL] Alert sent to {hod_email}")
+        log.info(f"[EMAIL] Alert sent to {recipients}")
     except Exception as e:
         log.error(f"[EMAIL] Failed: {e}")
 
@@ -348,8 +418,14 @@ class DeptCameraDetector:
         self.person_status  = {}      # person_id → activity string
         self.ear_counters   = {}      # person_id → ear frame count
         self.pitch_counters = {}      # person_id → pitch frame count
+        self.eating_pose_counters = {} # person_idx → hand-to-mouth frame count
+        self.sleeping_pose_counters = {} # person_idx → sleeping posture frame count
+        self.fight_pose_counters = {}    # pair_id → aggressive posture frame count
+        self._eating_food_in_frame = False   # set True when food object detected
         self.prev_keypoints = None
         self.prev_count     = 0
+        self.running        = False
+        self.latest_frame   = None
 
         log.info(f"Loading YOLO models …")
         self.yolo_det  = YOLO("yolov8n.pt")      if YOLO_AVAILABLE else None
@@ -378,11 +454,8 @@ class DeptCameraDetector:
         snap_path = save_snapshot(frame, self.dept_name, alert_type)
         if self.dept_info:
             insert_alert(self.dept_info["dept_id"], alert_type, snap_path, self.cam_idx)
-            if self.dept_info.get("hod_email"):
-                send_email_alert(
-                    self.dept_info["hod_email"],
-                    self.dept_name, alert_type, snap_path,
-                )
+            hod_email = self.dept_info.get("hod_email")
+            send_email_alert(hod_email, self.dept_name, alert_type, snap_path)
 
     # ── Detection methods ─────────────────────────────────────────────────────
 
@@ -411,9 +484,26 @@ class DeptCameraDetector:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
                     self._trigger_alert(frame, "fire")
 
-                # Food/eating (COCO food classes 47-52 + kitchen 39-45)
-                if cls_id in range(39, 60):
-                    self._trigger_alert(frame, "eating")
+                # ── Food / eating objects ──────────────────────────────────
+                if cls_id in FOOD_CLASS_IDS:
+                    # Choose label colour based on food type
+                    if cls_id in PURE_FOOD_IDS:
+                        food_color = (0, 200, 100)   # green — actual food
+                    elif cls_id in DRINKING_IDS:
+                        food_color = (255, 160, 0)   # orange — drink
+                    else:
+                        food_color = (100, 220, 255) # cyan — utensil/table
+
+                    food_label = self.yolo_det.model.names[cls_id]
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), food_color, 2)
+                    cv2.putText(frame, f"{food_label} {conf:.0%}",
+                                (x1, y1 - 6),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, food_color, 2)
+
+                    # High-confidence alert for actual food; utensils/table alone = no alert
+                    if cls_id in PURE_FOOD_IDS or cls_id in DRINKING_IDS:
+                        self._eating_food_in_frame = True
+                        self._trigger_alert(frame, "eating")
 
                 # Mobile usage
                 if cls_id == MOBILE_CLASS_ID:
@@ -552,6 +642,146 @@ class DeptCameraDetector:
 
         return score, signals
 
+    def _eating_pose_score(self, kps: list, box_h: float) -> tuple:
+        """
+        Detect hand-to-mouth eating gesture via wrist-to-nose proximity.
+        Returns (eating, signal_name) where eating is True/False.
+
+        Keypoints used (COCO):
+          0 = nose,  9 = left_wrist,  10 = right_wrist
+          5 = left_shoulder, 6 = right_shoulder (used to filter out raised hands)
+
+        Logic from the eating images:
+          - Student holds food with ONE hand raised to face level
+          - Wrist close to nose/mouth (within EATING_WRIST_NOSE_RATIO * person_height)
+          - Elbow NOT above shoulder (distinguishes eating from hand-raising)
+        """
+        def kp(i):
+            if i >= len(kps): return None
+            x, y, c = kps[i]
+            return (x, y, c) if c > 0.35 else None
+
+        nose = kp(0)
+        lw   = kp(9);  rw  = kp(10)
+        ls   = kp(5);  rs  = kp(6)
+        le   = kp(7);  re  = kp(8)
+
+        if not nose or box_h < 1:
+            return False, None
+
+        thresh = EATING_WRIST_NOSE_RATIO * box_h
+
+        for wrist, shoulder, elbow, side in [
+            (lw, ls, le, "left"), (rw, rs, re, "right")
+        ]:
+            if not wrist:
+                continue
+            dist = math.sqrt((wrist[0] - nose[0])**2 + (wrist[1] - nose[1])**2)
+            if dist < thresh:
+                # Exclude: elbow above shoulder = hand-raising, not eating
+                if elbow and shoulder and elbow[1] < shoulder[1] - 15:
+                    continue   # this is hand-raising posture
+                return True, f"wrist_near_nose_{side}"
+
+        return False, None
+
+    def _sleeping_pose_score(self, kps: list, box_h: float) -> tuple:
+        """
+        Detect sleeping based on posture (head resting on desk or hand).
+        Returns (sleeping, signal_name).
+        """
+        def kp(i):
+            if i >= len(kps): return None
+            x, y, c = kps[i]
+            return (x, y, c) if c > 0.35 else None
+
+        nose = kp(0)
+        lear = kp(3); rear = kp(4)
+        ls = kp(5); rs = kp(6)
+        lw = kp(9); rw = kp(10)
+
+        if box_h < 1:
+            return False, None
+            
+        # Get head y-coordinate (prefer nose, fallback to ears)
+        head_y = None
+        if nose: head_y = nose[1]
+        elif lear and rear: head_y = (lear[1] + rear[1]) / 2.0
+        elif lear: head_y = lear[1]
+        elif rear: head_y = rear[1]
+        
+        if head_y is None:
+            return False, None
+
+        # Get shoulder y-coordinate
+        shoulder_y = None
+        if ls and rs: shoulder_y = (ls[1] + rs[1]) / 2.0
+        elif ls: shoulder_y = ls[1]
+        elif rs: shoulder_y = rs[1]
+
+        if shoulder_y is None:
+            return False, None
+
+        # Posture 1: Head is completely down (head_y is very close to or below shoulder_y)
+        head_shoulder_dist = shoulder_y - head_y
+        if head_shoulder_dist < (0.15 * box_h):
+            return True, "head_on_desk"
+            
+        # Posture 2: Head resting on hand
+        # Distance from wrist to head is very small, and head_shoulder_dist is small (slouched)
+        thresh_wrist = 0.25 * box_h
+        if head_shoulder_dist < (0.3 * box_h):
+            for wrist, side in [(lw, "left"), (rw, "right")]:
+                if wrist:
+                    dist_to_head = math.sqrt((wrist[0] - (nose[0] if nose else wrist[0]))**2 + 
+                                             (wrist[1] - head_y)**2)
+                    if dist_to_head < thresh_wrist:
+                        return True, f"head_on_{side}_hand"
+
+        return False, None
+
+    def _detect_fighting_posture(self, kps1: list, kps2: list) -> bool:
+        """
+        Check for aggressive posture between two overlapping people.
+        Indicators: A wrist is raised and extremely close to the other person's head/neck/shoulder
+        (e.g., punching, grabbing collar, pulling hair, headlock).
+        """
+        def kp(kps, idx):
+            if idx >= len(kps): return None
+            x, y, c = kps[idx]
+            return (x, y, c) if c > 0.4 else None
+
+        def wrist_near_head(p_attacker, p_victim):
+            a_lw = kp(p_attacker, 9); a_rw = kp(p_attacker, 10)
+            v_nose = kp(p_victim, 0)
+            v_ls = kp(p_victim, 5); v_rs = kp(p_victim, 6)
+            
+            targets = [v for v in [v_nose, v_ls, v_rs] if v is not None]
+            if not targets:
+                return False
+                
+            for wrist in [a_lw, a_rw]:
+                if not wrist: continue
+                
+                # Attacker's wrist must be raised (above their own elbow or hip)
+                a_ls = kp(p_attacker, 5); a_rs = kp(p_attacker, 6)
+                if a_ls and a_rs:
+                    shoulder_y = (a_ls[1] + a_rs[1]) / 2.0
+                    if wrist[1] > shoulder_y + 80: # Wrist too low to be a punch/grab to upper body
+                        continue
+                        
+                for target in targets:
+                    dist = math.sqrt((wrist[0] - target[0])**2 + (wrist[1] - target[1])**2)
+                    if dist < 65: # Within 65 pixels = physical contact / grabbing
+                        return True
+            return False
+
+        # Check if either person is attacking the other
+        if wrist_near_head(kps1, kps2) or wrist_near_head(kps2, kps1):
+            return True
+            
+        return False
+
     def detect_pose_activities(self, frame: np.ndarray):
         """YOLOv8-Pose: dancing, playing (multi-signal), hand raising, standing/sitting."""
         if not self.yolo_pose:
@@ -568,6 +798,48 @@ class DeptCameraDetector:
 
             for idx, person_kps in enumerate(kp_data):
                 kps = person_kps.tolist()
+
+                # ── Eating: pose-based wrist-to-nose detection ───────────────
+                box_h = 0.0
+                if boxes_xy is not None and idx < len(boxes_xy):
+                    bvals = boxes_xy[idx]
+                    box_h = float(bvals[3]) - float(bvals[1])
+
+                eating, eat_signal = self._eating_pose_score(kps, box_h)
+                self.eating_pose_counters.setdefault(idx, 0)
+                if eating:
+                    self.eating_pose_counters[idx] += 1
+                else:
+                    self.eating_pose_counters[idx] = max(0, self.eating_pose_counters[idx] - 1)
+
+                if self.eating_pose_counters[idx] >= EATING_POSE_FRAMES:
+                    # Draw eating label near the person's face area
+                    if boxes_xy is not None and idx < len(boxes_xy):
+                        bx1 = int(boxes_xy[idx][0])
+                        by1 = int(boxes_xy[idx][1])
+                        cv2.putText(frame, "EATING", (bx1, by1 - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 100), 2)
+                    self._trigger_alert(frame, "eating")
+                    log.info(f"[{self.dept_name}] Eating gesture detected (signal={eat_signal})")
+
+                # ── Sleeping: pose-based wrist-to-head / head-to-desk ────────
+                sleeping, sleep_signal = self._sleeping_pose_score(kps, box_h)
+                self.sleeping_pose_counters.setdefault(idx, 0)
+                if sleeping:
+                    self.sleeping_pose_counters[idx] += 1
+                else:
+                    self.sleeping_pose_counters[idx] = max(0, self.sleeping_pose_counters[idx] - 2)
+
+                if self.sleeping_pose_counters[idx] >= 45: # ~1.5s
+                    if boxes_xy is not None and idx < len(boxes_xy):
+                        bx1 = int(boxes_xy[idx][0])
+                        by1 = int(boxes_xy[idx][1])
+                        cv2.putText(frame, "SLEEPING", (bx1, by1 - 30),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    self._trigger_alert(frame, "sleeping")
+                    # Log only occasionally to prevent spam
+                    if self.sleeping_pose_counters[idx] == 45:
+                        log.info(f"[{self.dept_name}] Sleeping posture detected (signal={sleep_signal})")
 
                 # ── Playing / Dancing (multi-signal heuristic) ───────────────
                 play_score, signals = self._playing_score(kps, w, h)
@@ -634,6 +906,87 @@ class DeptCameraDetector:
                                     (bx1, by2 + 18),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255,220,0), 2)
 
+            # ── Multi-person Interactions (Fighting / Grappling) ─────────────
+            num_people = len(kp_data)
+            if num_people >= 2 and boxes_xy is not None:
+                for i in range(num_people):
+                    for j in range(i+1, num_people):
+                        box_i = boxes_xy[i].tolist()
+                        box_j = boxes_xy[j].tolist()
+                        iou = boxes_iou(box_i, box_j)
+                        
+                        # Soft IoU threshold for proximity (people standing close)
+                        if iou > 0.12:
+                            kps_i = kp_data[i].tolist()
+                            kps_j = kp_data[j].tolist()
+                            
+                            is_fighting = self._detect_fighting_posture(kps_i, kps_j)
+                            
+                            pair_id = f"{min(i,j)}_{max(i,j)}"
+                            self.fight_pose_counters.setdefault(pair_id, 0)
+                            if is_fighting:
+                                self.fight_pose_counters[pair_id] += 1
+                            else:
+                                self.fight_pose_counters[pair_id] = max(0, self.fight_pose_counters[pair_id] - 1)
+                                
+                            # Require ~5 frames of continuous physical contact
+                            if self.fight_pose_counters[pair_id] >= 5:
+                                cv2.rectangle(frame, (int(box_i[0]), int(box_i[1])), (int(box_i[2]), int(box_i[3])), (0,0,255), 3)
+                                cv2.rectangle(frame, (int(box_j[0]), int(box_j[1])), (int(box_j[2]), int(box_j[3])), (0,0,255), 3)
+                                cv2.putText(frame, "FIGHTING (GRAPPLE)!", (int(box_i[0]), int(box_i[1])-15), 
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
+                                self._trigger_alert(frame, "fighting")
+                                if self.fight_pose_counters[pair_id] == 5:
+                                    log.info(f"[{self.dept_name}] Fighting posture detected (grappling/contact)")
+
+    def gemini_worker(self):
+        """Background thread that sends 1 frame every 5 seconds to Gemini API."""
+        if not GEMINI_ENABLED:
+            return
+            
+        log.info(f"[{self.dept_name}] Gemini background analysis thread started (1 frame / 5s).")
+        model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"response_mime_type": "application/json"})
+        prompt = """
+Analyze this classroom image. Tell me if any of the following activities are clearly happening right now.
+Respond strictly in this JSON format (use true or false):
+{
+  "fighting": false,
+  "sleeping": false,
+  "eating": false,
+  "dancing": false
+}
+"""
+        while self.running:
+            time.sleep(5)
+            
+            if self.latest_frame is None:
+                continue
+
+            # Work on a copy of the frame to avoid race conditions
+            frame_copy = self.latest_frame.copy()
+            try:
+                rgb_frame = cv2.cvtColor(frame_copy, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(rgb_frame)
+                
+                response = model.generate_content([prompt, pil_img])
+                data = json.loads(response.text)
+                
+                detected_activities = [k for k, v in data.items() if v is True]
+                if detected_activities:
+                    log.info(f"[GEMINI] Cloud AI detected: {', '.join(detected_activities).upper()} in {self.dept_name}!")
+                    
+                for activity in detected_activities:
+                    if activity in ["fighting", "sleeping", "eating", "dancing"]:
+                        # Draw alert overlay for the live feed window
+                        h, w = self.latest_frame.shape[:2]
+                        cv2.putText(self.latest_frame, f"GEMINI DETECTED: {activity.upper()}", 
+                                    (w//2 - 200, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+                        # Trigger standard alert (saves snapshot, sends email, updates DB)
+                        self._trigger_alert(frame_copy, activity)
+                        
+            except Exception as e:
+                log.error(f"[GEMINI] Analysis failed: {e}")
+
     def run(self):
         """Main detection loop for this department's camera."""
         log.info(f"[{self.dept_name}] Starting camera on index {self.cam_idx} …")
@@ -645,14 +998,19 @@ class DeptCameraDetector:
 
         log.info(f"[{self.dept_name}] Camera opened. Press Q in window to quit.")
         frame_count = 0
+        
+        self.running = True
+        gemini_thread = threading.Thread(target=self.gemini_worker, daemon=True)
+        gemini_thread.start()
 
-        while True:
+        while self.running:
             ret, frame = cap.read()
             if not ret:
                 log.warning(f"[{self.dept_name}] Frame read failed — retrying …")
                 time.sleep(0.5)
                 continue
 
+            self.latest_frame = frame
             frame_count += 1
             h, w = frame.shape[:2]
 
@@ -698,6 +1056,7 @@ class DeptCameraDetector:
 
             cv2.imshow(f"College CMS — {self.dept_name}", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
+                self.running = False
                 break
 
         cap.release()
