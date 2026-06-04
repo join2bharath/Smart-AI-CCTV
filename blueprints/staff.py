@@ -186,6 +186,18 @@ def notif_count():
     return jsonify({"count": count})
 
 
+@staff_bp.route("/alerts/ack/<int:alert_id>", methods=["POST"])
+@login_required
+@staff_required
+def ack_alert(alert_id):
+    """Acknowledge a camera alert (staff can only ack their own dept)."""
+    alert = CameraAlert.query.get_or_404(alert_id)
+    if alert.dept_id == current_user.dept_id:
+        alert.acknowledged = True
+        db.session.commit()
+    return jsonify({"status": "ok"})
+
+
 @staff_bp.route("/api/camera-stats")
 @login_required
 @staff_required
@@ -199,12 +211,20 @@ def camera_stats():
     sleeping = (CameraAlert.query
                 .filter_by(dept_id=staff.dept_id, alert_type="sleeping", acknowledged=False)
                 .count())
+    fire     = (CameraAlert.query
+                .filter_by(dept_id=staff.dept_id, alert_type="fire", acknowledged=False)
+                .count())
+    fighting = (CameraAlert.query
+                .filter_by(dept_id=staff.dept_id, alert_type="fighting", acknowledged=False)
+                .count())
     unacked  = (CameraAlert.query
                 .filter_by(dept_id=staff.dept_id, acknowledged=False)
                 .count())
     return jsonify({
-        "unacked_alerts": unacked,
+        "unacked_alerts":  unacked,
         "sleeping_alerts": sleeping,
+        "fire_alerts":     fire,
+        "fighting_alerts": fighting,
         "latest_alert":    latest.alert_type if latest else None,
         "latest_time":     latest.created_at.strftime("%H:%M:%S") if latest else None,
         "alert_icons": {

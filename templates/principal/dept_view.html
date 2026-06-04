@@ -8,6 +8,12 @@
 <div class="main-content">
   {{ topbar(dept.name + ' Department', 'principal') }}
   <div class="page-content">
+  
+    <div style="display:flex; justify-content:flex-end; margin-bottom:16px;">
+      <a href="{{ url_for('principal.cameras', dept_id=dept.id) }}" class="btn btn-primary" style="gap:8px;">
+        <i class="fa fa-video"></i> View Live Camera — {{ dept.name }}
+      </a>
+    </div>
 
     <!-- HOD Contact Info -->
     {% if hod %}

@@ -19,37 +19,43 @@
           <h3><i class="fa fa-video"></i> {{ dept.name }} Department — Live Feed</h3>
           <span class="camera-status-badge live">&#9679; LIVE</span>
         </div>
-        <div style="padding:16px; text-align:center;">
+        <div style="padding:16px; text-align:center; position:relative;">
           <img id="live-feed"
-               src="{{ url_for('video_feed', dept_name=dept.name) }}"
-               alt="Live Camera Feed"
-               style="width:100%; max-width:680px; border-radius:10px;
-                      border:3px solid var(--border);
+               src=""
+               alt="Camera is currently off."
+               style="width:100%; max-width:680px; min-height:380px; border-radius:10px;
+                      border:3px solid var(--border); background-color: #1a1a1a;
                       box-shadow: 0 4px 20px rgba(0,0,0,0.4);"/>
+          <div id="start-overlay" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);">
+            <button onclick="startCamera()" class="btn btn-primary" style="padding: 12px 24px; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+              <i class="fa fa-play-circle"></i> Start Live Camera
+            </button>
+          </div>
         </div>
       </div>
 
       <!-- Live Stats Panel -->
       <div style="flex:1; min-width:220px; display:flex; flex-direction:column; gap:14px;">
 
-        <!-- Alert Count -->
-        <div class="section-card" style="padding:18px;">
-          <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">
-            <i class="fa fa-users"></i> DEPT ALERTS
-          </div>
-          <div id="stat-label" style="font-size:2rem; font-weight:700; color:var(--primary);">{{ alert_count }}</div>
-          <div style="font-size:0.82rem; color:var(--text-muted);">Unacknowledged</div>
-        </div>
-
-        <!-- Activity Breakdown -->
+        <!-- Activity Status -->
         <div class="section-card" style="padding:18px;">
           <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">
             <i class="fa fa-chart-bar"></i> ACTIVITY STATUS
           </div>
           <div style="display:flex; flex-direction:column; gap:8px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:0.85rem;">😴 Sleeping Alerts</span>
+              <span style="font-size:0.85rem;">😴 Sleeping</span>
               <span id="stat-sleeping" style="background:#ff4444; color:#fff; border-radius:12px;
+                    padding:2px 10px; font-size:0.8rem; font-weight:600;">0</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:0.85rem;">🔥 Fire</span>
+              <span id="stat-fire" style="background:#ff6b00; color:#fff; border-radius:12px;
+                    padding:2px 10px; font-size:0.8rem; font-weight:600;">0</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:0.85rem;">👊 Fighting</span>
+              <span id="stat-fighting" style="background:#7c3aed; color:#fff; border-radius:12px;
                     padding:2px 10px; font-size:0.8rem; font-weight:600;">0</span>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -70,7 +76,7 @@
           <div id="stat-latest-time" style="font-size:0.75rem; color:var(--text-muted);"></div>
         </div>
 
-        <!-- Quick Links -->
+        <!-- Quick Actions -->
         <div class="section-card" style="padding:18px;">
           <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">
             <i class="fa fa-bolt"></i> QUICK ACTIONS
@@ -82,6 +88,9 @@
             <a href="{{ url_for('hod.dashboard') }}" class="btn btn-outline btn-sm">
               <i class="fa fa-home"></i> Dashboard
             </a>
+            <button onclick="reloadFeed()" class="btn btn-outline btn-sm">
+              <i class="fa fa-sync"></i> Reload Feed
+            </button>
           </div>
         </div>
 
@@ -108,8 +117,8 @@
     <!-- Recent Camera Alerts -->
     <div class="section-card">
       <div class="section-header">
-        <h3><i class="fa fa-bell"></i> Recent Camera Alerts</h3>
-        <span class="section-badge">{{ alerts|length }}</span>
+        <h3><i class="fa fa-bell"></i> Recent Camera Alerts — {{ dept.name }}</h3>
+        <span class="section-badge">{{ alerts|length }} total</span>
       </div>
       <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
         {% for alert in alerts %}
@@ -127,19 +136,26 @@
           </div>
           <div class="alert-body">
             <div class="alert-type">
-              <span class="alert-type-badge atb-{{ alert.alert_type }}">{{ alert.alert_type|replace('_',' ')|title }}</span>
-              {% if not alert.acknowledged %}<span style="color:var(--accent-red); font-size:0.72rem; margin-left:6px;">● NEW</span>{% endif %}
+              <span class="alert-type-badge atb-{{ alert.alert_type }}">
+                {{ alert.alert_type|replace('_',' ')|title }}
+              </span>
+              {% if not alert.acknowledged %}
+              <span style="color:var(--accent-red); font-size:0.72rem; margin-left:6px;">● NEW</span>
+              {% endif %}
             </div>
             <div class="alert-time"><i class="fa fa-clock"></i> {{ alert.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
-            <div class="alert-dept">Camera #{{ alert.camera_index }}</div>
+            <div class="alert-dept"><i class="fa fa-video"></i> Camera #{{ alert.camera_index }}</div>
           </div>
           {% if alert.snapshot_path %}
           <img class="snapshot-img"
                src="{{ url_for('static', filename=alert.snapshot_path) }}"
-               alt="snap" onerror="this.style.display='none'">
+               alt="snap" title="Click to enlarge"
+               onclick="this.style.width = this.style.width === '200px' ? '60px' : '200px'"
+               onerror="this.style.display='none'">
           {% endif %}
           {% if not alert.acknowledged %}
-          <button class="btn btn-outline btn-sm ack-btn" onclick="ackAlert({{ alert.id }}, '/hod/alerts/ack/')">
+          <button class="btn btn-outline btn-sm ack-btn"
+                  onclick="ackAlert({{ alert.id }}, '/hod/alerts/ack/')">
             <i class="fa fa-check"></i> Ack
           </button>
           {% else %}
@@ -156,7 +172,6 @@
 </div>
 
 <script>
-// ── Live Stats Polling ────────────────────────────────────────────────────────
 const ICONS = {
   fire:"🔥", fighting:"👊", sleeping:"😴", eating:"🍔",
   playing:"🎮", dancing:"💃", mobile_usage:"📱",
@@ -170,9 +185,8 @@ async function refreshStats() {
 
     document.getElementById("stat-sleeping").textContent = data.sleeping_alerts ?? 0;
     document.getElementById("stat-unacked").textContent  = data.unacked_alerts  ?? 0;
-
-    const lbl = document.getElementById("stat-label");
-    if (lbl) lbl.textContent = data.unacked_alerts ?? 0;
+    document.getElementById("stat-fire").textContent     = data.fire_alerts     ?? 0;
+    document.getElementById("stat-fighting").textContent = data.fighting_alerts ?? 0;
 
     if (data.latest_alert) {
       document.getElementById("stat-latest-icon").textContent = ICONS[data.latest_alert] || "⚠️";
@@ -181,6 +195,22 @@ async function refreshStats() {
       document.getElementById("stat-latest-time").textContent = data.latest_time || "";
     }
   } catch(e) { console.warn("Stats fetch failed", e); }
+}
+
+function startCamera() {
+  const img = document.getElementById('live-feed');
+  img.src = "{{ url_for('video_feed', dept_name=dept.name) }}";
+  document.getElementById('start-overlay').style.display = 'none';
+}
+
+function reloadFeed() {
+  const img = document.getElementById('live-feed');
+  if (!img.src || img.src.endsWith(window.location.host + window.location.pathname) || img.src === window.location.href) {
+      startCamera();
+      return;
+  }
+  const src = img.src.split('?')[0];
+  img.src = src + '?t=' + Date.now();
 }
 
 refreshStats();

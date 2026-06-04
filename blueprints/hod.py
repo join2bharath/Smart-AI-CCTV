@@ -36,8 +36,15 @@ def dashboard():
 
     qual_filter = request.args.get("qual", "all")
     if qual_filter != "all" and hod.dept_id:
-        staff_members = Staff.query.filter_by(dept_id=hod.dept_id, qualification=qual_filter).all()
-
+        if qual_filter == "BE":
+            quals = ["BE", "ME", "PhD"]
+        elif qual_filter == "ME":
+            quals = ["ME", "PhD"]
+        elif qual_filter == "PhD":
+            quals = ["PhD"]
+        else:
+            quals = [qual_filter]
+        staff_members = Staff.query.filter(Staff.dept_id==hod.dept_id, Staff.qualification.in_(quals)).all()
     return render_template("hod/dashboard.html",
                            hod=hod, dept=dept,
                            students=students,
@@ -223,12 +230,20 @@ def camera_stats():
     sleeping = (CameraAlert.query
                 .filter_by(dept_id=hod.dept_id, alert_type="sleeping", acknowledged=False)
                 .count())
+    fire     = (CameraAlert.query
+                .filter_by(dept_id=hod.dept_id, alert_type="fire", acknowledged=False)
+                .count())
+    fighting = (CameraAlert.query
+                .filter_by(dept_id=hod.dept_id, alert_type="fighting", acknowledged=False)
+                .count())
     unacked  = (CameraAlert.query
                 .filter_by(dept_id=hod.dept_id, acknowledged=False)
                 .count())
     return jsonify({
         "unacked_alerts":  unacked,
         "sleeping_alerts": sleeping,
+        "fire_alerts":     fire,
+        "fighting_alerts": fighting,
         "latest_alert":    latest.alert_type if latest else None,
         "latest_time":     latest.created_at.strftime("%H:%M:%S") if latest else None,
         "alert_icons": {
@@ -238,4 +253,5 @@ def camera_stats():
             "standing": "🧍", "sitting": "🪑",
         }
     })
+
 

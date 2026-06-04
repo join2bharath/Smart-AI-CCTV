@@ -141,7 +141,7 @@
             else b.style.display = 'none';
           }).catch(()=>{});
           poll();
-        }, 30000);
+        }, 10000);
       })();
     </script>
     {% endif %}
@@ -153,7 +153,9 @@
     const el = document.getElementById('topbarTime');
     if (el) {
       const now = new Date();
-      el.textContent = now.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
+      const dateStr = now.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+      const timeStr = now.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      el.textContent = dateStr + '  |  ' + timeStr;
     }
     setTimeout(tick, 1000);
   })();

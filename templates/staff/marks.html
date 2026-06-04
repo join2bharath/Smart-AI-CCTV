@@ -1,72 +1,168 @@
 {% from "macros.html" import sidebar, topbar %}
 {% extends "base.html" %}
-{% block title %}Edit Marks — College CMS{% endblock %}
+{% block title %}Edit Marks — {{ dept.name }}{% endblock %}
 {% block body_class %}app-layout{% endblock %}
 {% block body %}
 {{ sidebar('staff', 'marks', staff, dept) }}
 <div class="main-content">
-  {{ topbar('Edit Student Marks', 'staff') }}
+  {{ topbar('Edit Student Marks — ' + dept.name, 'staff') }}
   <div class="page-content">
     <div class="section-card">
       <div class="section-header">
-        <h3><i class="fa fa-chart-bar"></i> Internal Marks</h3>
-        <div class="section-tabs">
-          <a href="{{ url_for('staff.marks', section='A') }}" class="tab-btn {% if section=='A' %}active{% endif %}">Section A</a>
-          <a href="{{ url_for('staff.marks', section='B') }}" class="tab-btn {% if section=='B' %}active{% endif %}">Section B</a>
+        <h3><i class="fa fa-chart-bar"></i> Internal Marks Entry</h3>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <a href="{{ url_for('staff.marks', section='A') }}"
+             class="filter-tab {% if section=='A' %}active{% endif %}">Section A</a>
+          <a href="{{ url_for('staff.marks', section='B') }}"
+             class="filter-tab {% if section=='B' %}active{% endif %}">Section B</a>
+          <span class="section-badge">{{ students|length }} Students</span>
         </div>
       </div>
-      <form method="POST" action="{{ url_for('staff.marks', section=section) }}">
+
+      <!-- Quick Stats -->
+      <div style="padding:12px 18px; display:flex; gap:14px; flex-wrap:wrap;
+                  border-bottom:1px solid var(--border); align-items:center;">
+        <div style="background:rgba(99,102,241,0.12); border-radius:10px; padding:8px 16px; text-align:center;">
+          <div style="font-size:1.2rem; font-weight:700; color:var(--primary);">{{ students|length }}</div>
+          <div style="font-size:0.72rem; color:var(--text-muted);">Students</div>
+        </div>
+        <div style="background:rgba(16,185,129,0.12); border-radius:10px; padding:8px 16px; text-align:center;">
+          <div style="font-size:1.2rem; font-weight:700; color:#10b981;">{{ subjects|length }}</div>
+          <div style="font-size:0.72rem; color:var(--text-muted);">Subjects</div>
+        </div>
+        <div style="flex:1;">
+          <input type="text" id="markSearch" placeholder="🔍 Search by name or roll no…"
+                 oninput="filterRows()"
+                 style="width:100%; max-width:300px; padding:7px 12px; border-radius:8px;
+                        background:rgba(255,255,255,0.07); border:1px solid var(--border);
+                        color:var(--text-color); font-size:0.88rem;">
+        </div>
+        <div style="margin-left:auto;">
+          <span style="font-size:0.78rem; color:var(--text-muted);">
+            <span style="display:inline-block; width:12px; height:12px; background:#10b981; border-radius:3px; margin-right:4px;"></span>Pass (≥35)
+            <span style="display:inline-block; width:12px; height:12px; background:#ef4444; border-radius:3px; margin:0 4px 0 12px;"></span>Fail (&lt;35)
+          </span>
+        </div>
+      </div>
+
+      <form method="POST" action="{{ url_for('staff.marks', section=section) }}" id="marksForm">
         <input type="hidden" name="section" value="{{ section }}"/>
         <div class="table-responsive">
-          <table class="data-table marks-edit-table">
+          <table class="data-table marks-edit-table" id="marksTable">
             <thead>
               <tr>
-                <th>Roll No</th>
-                <th>Name</th>
+                <th style="min-width:80px;">Roll No</th>
+                <th style="min-width:140px;">Name</th>
                 {% for subj in subjects %}
-                <th colspan="3" class="subj-header">{{ subj.name }}</th>
+                <th colspan="3" class="subj-header"
+                    style="text-align:center; border-left:2px solid var(--border);
+                           background:rgba(99,102,241,0.07);">{{ subj.name }}</th>
                 {% endfor %}
+                <th style="border-left:2px solid var(--border); min-width:60px;">Fails</th>
               </tr>
-              <tr class="sub-header-row">
+              <tr style="background:rgba(0,0,0,0.15);">
                 <th></th><th></th>
                 {% for subj in subjects %}
-                <th>IA1</th><th>IA2</th><th>IA3</th>
+                <th style="border-left:2px solid var(--border); font-size:0.7rem; color:var(--text-muted);">IA1</th>
+                <th style="font-size:0.7rem; color:var(--text-muted);">IA2</th>
+                <th style="font-size:0.7rem; color:var(--text-muted);">IA3</th>
                 {% endfor %}
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {% for s in students %}
-              <tr>
+              <tr class="mark-row" data-name="{{ s.name|lower }}" data-roll="{{ s.roll_no|lower }}">
                 <td><span class="code-tag">{{ s.roll_no }}</span></td>
-                <td>{{ s.name }}</td>
+                <td><b>{{ s.name }}</b></td>
                 {% for subj in subjects %}
                 {% set mk = marks_dict.get(s.id, {}).get(subj.id) %}
                 {% for i in [1, 2, 3] %}
                 {% set val = mk['internal' ~ i] if mk else 0 %}
-                <td>
-                  <input type="number" name="mark_{{ s.id }}_{{ subj.id }}_{{ i }}"
-                         value="{{ val or 0 }}" min="0" max="100"
+                <td {% if loop.first %}style="border-left:2px solid var(--border)"{% endif %}>
+                  <input type="number"
+                         name="mark_{{ s.id }}_{{ subj.id }}_{{ i }}"
+                         value="{{ val or 0 }}"
+                         min="0" max="100"
                          class="mark-input {% if val >= 35 %}pass-input{% elif val > 0 %}fail-input{% endif %}"
-                         oninput="colorInput(this)"/>
+                         oninput="colorInput(this); updateFails(this.closest('tr'))"/>
                 </td>
                 {% endfor %}
                 {% endfor %}
+                <!-- Fail counter cell -->
+                <td id="fail-count-{{ s.id }}" style="border-left:2px solid var(--border); text-align:center; font-weight:700;"></td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
-        <div class="form-actions">
-          <button type="submit" class="btn-primary"><i class="fa fa-save"></i> Save All Marks</button>
+        <div class="form-actions" style="padding:16px 18px; display:flex; gap:12px; align-items:center;">
+          <button type="submit" class="btn btn-primary">
+            <i class="fa fa-save"></i> Save All Marks
+          </button>
+          <button type="button" class="btn btn-outline" onclick="if(confirm('Reset all marks to 0?')) resetAllMarks()">
+            <i class="fa fa-undo"></i> Reset All
+          </button>
+          <span id="save-status" style="font-size:0.82rem; color:#10b981; display:none;">
+            <i class="fa fa-check"></i> Saved!
+          </span>
         </div>
       </form>
     </div>
   </div>
 </div>
+
 <script>
 function colorInput(inp) {
   const v = parseInt(inp.value) || 0;
   inp.className = 'mark-input ' + (v >= 35 ? 'pass-input' : v > 0 ? 'fail-input' : '');
 }
+
+function updateFails(row) {
+  const inputs = row.querySelectorAll('input.mark-input');
+  let fails = 0;
+  inputs.forEach(inp => {
+    const v = parseInt(inp.value) || 0;
+    if (v < 35) fails++;
+  });
+  // Find the last td (fail count cell)
+  const cells = row.querySelectorAll('td');
+  const failCell = cells[cells.length - 1];
+  if (failCell) {
+    if (fails > 0) {
+      failCell.innerHTML = `<span style="background:rgba(239,68,68,0.2);color:#f87171;
+        border-radius:10px;padding:1px 8px;font-size:0.78rem;">${fails}</span>`;
+    } else {
+      failCell.innerHTML = '<span style="color:#10b981;font-size:0.8rem;">✓</span>';
+    }
+  }
+}
+
+function filterRows() {
+  const q = document.getElementById('markSearch').value.toLowerCase();
+  document.querySelectorAll('#marksTable tbody .mark-row').forEach(row => {
+    const name = row.dataset.name || '';
+    const roll = row.dataset.roll || '';
+    row.style.display = (name.includes(q) || roll.includes(q)) ? '' : 'none';
+  });
+}
+
+function resetAllMarks() {
+  document.querySelectorAll('.mark-input').forEach(inp => {
+    inp.value = 0;
+    colorInput(inp);
+  });
+  document.querySelectorAll('.mark-row').forEach(row => updateFails(row));
+}
+
+// Show saved flash after form submit
+document.getElementById('marksForm').addEventListener('submit', function() {
+  const btn = this.querySelector('button[type=submit]');
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving…';
+  btn.disabled = true;
+});
+
+// Init all fail counters on load
+document.querySelectorAll('.mark-row').forEach(row => updateFails(row));
 </script>
 {% endblock %}

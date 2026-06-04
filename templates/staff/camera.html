@@ -32,24 +32,25 @@
       <!-- Live Stats Panel -->
       <div style="flex:1; min-width:220px; display:flex; flex-direction:column; gap:14px;">
 
-        <!-- Student Count -->
-        <div class="section-card" style="padding:18px;">
-          <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">
-            <i class="fa fa-users"></i> LIVE COUNT
-          </div>
-          <div id="stat-label" style="font-size:2rem; font-weight:700; color:var(--primary);">—</div>
-          <div style="font-size:0.82rem; color:var(--text-muted);">Students detected</div>
-        </div>
-
-        <!-- Activity Breakdown -->
+        <!-- Activity Status -->
         <div class="section-card" style="padding:18px;">
           <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">
             <i class="fa fa-chart-bar"></i> ACTIVITY STATUS
           </div>
           <div style="display:flex; flex-direction:column; gap:8px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:0.85rem;">😴 Sleeping Alerts</span>
+              <span style="font-size:0.85rem;">😴 Sleeping</span>
               <span id="stat-sleeping" style="background:#ff4444; color:#fff; border-radius:12px;
+                    padding:2px 10px; font-size:0.8rem; font-weight:600;">0</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:0.85rem;">🔥 Fire</span>
+              <span id="stat-fire" style="background:#ff6b00; color:#fff; border-radius:12px;
+                    padding:2px 10px; font-size:0.8rem; font-weight:600;">0</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:0.85rem;">👊 Fighting</span>
+              <span id="stat-fighting" style="background:#7c3aed; color:#fff; border-radius:12px;
                     padding:2px 10px; font-size:0.8rem; font-weight:600;">0</span>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -70,20 +71,35 @@
           <div id="stat-latest-time" style="font-size:0.75rem; color:var(--text-muted);"></div>
         </div>
 
-        <!-- Detected Activities Legend -->
+        <!-- Quick Actions -->
+        <div class="section-card" style="padding:18px;">
+          <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">
+            <i class="fa fa-bolt"></i> QUICK ACTIONS
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <a href="{{ url_for('staff.dashboard') }}" class="btn btn-outline btn-sm">
+              <i class="fa fa-home"></i> Dashboard
+            </a>
+            <button onclick="reloadFeed()" class="btn btn-outline btn-sm">
+              <i class="fa fa-sync"></i> Reload Feed
+            </button>
+          </div>
+        </div>
+
+        <!-- AI Detects Legend -->
         <div class="section-card" style="padding:18px;">
           <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">
             <i class="fa fa-info-circle"></i> AI DETECTS
           </div>
           <div style="display:flex; flex-wrap:wrap; gap:6px;">
-            <span style="background:rgba(255,68,68,0.15); color:#ff6b6b; border-radius:8px; padding:3px 8px; font-size:0.75rem;">🔥 Fire</span>
-            <span style="background:rgba(255,100,0,0.15); color:#ff8c42; border-radius:8px; padding:3px 8px; font-size:0.75rem;">👊 Fighting</span>
-            <span style="background:rgba(100,149,237,0.15); color:#6495ed; border-radius:8px; padding:3px 8px; font-size:0.75rem;">😴 Sleeping</span>
-            <span style="background:rgba(255,165,0,0.15); color:#ffa500; border-radius:8px; padding:3px 8px; font-size:0.75rem;">🍔 Eating</span>
-            <span style="background:rgba(0,255,127,0.15); color:#00c980; border-radius:8px; padding:3px 8px; font-size:0.75rem;">🎮 Playing</span>
-            <span style="background:rgba(255,20,147,0.15); color:#ff69b4; border-radius:8px; padding:3px 8px; font-size:0.75rem;">💃 Dancing</span>
-            <span style="background:rgba(138,43,226,0.15); color:#9d4edd; border-radius:8px; padding:3px 8px; font-size:0.75rem;">📱 Mobile</span>
-            <span style="background:rgba(0,200,200,0.15); color:#00b4b4; border-radius:8px; padding:3px 8px; font-size:0.75rem;">✋ Hand Raise</span>
+            <span style="background:rgba(255,68,68,0.15);color:#ff6b6b;border-radius:8px;padding:3px 8px;font-size:0.75rem;">🔥 Fire</span>
+            <span style="background:rgba(255,100,0,0.15);color:#ff8c42;border-radius:8px;padding:3px 8px;font-size:0.75rem;">👊 Fighting</span>
+            <span style="background:rgba(100,149,237,0.15);color:#6495ed;border-radius:8px;padding:3px 8px;font-size:0.75rem;">😴 Sleeping</span>
+            <span style="background:rgba(255,165,0,0.15);color:#ffa500;border-radius:8px;padding:3px 8px;font-size:0.75rem;">🍔 Eating</span>
+            <span style="background:rgba(0,255,127,0.15);color:#00c980;border-radius:8px;padding:3px 8px;font-size:0.75rem;">🎮 Playing</span>
+            <span style="background:rgba(255,20,147,0.15);color:#ff69b4;border-radius:8px;padding:3px 8px;font-size:0.75rem;">💃 Dancing</span>
+            <span style="background:rgba(138,43,226,0.15);color:#9d4edd;border-radius:8px;padding:3px 8px;font-size:0.75rem;">📱 Mobile</span>
+            <span style="background:rgba(0,200,200,0.15);color:#00b4b4;border-radius:8px;padding:3px 8px;font-size:0.75rem;">✋ Hand Raise</span>
           </div>
         </div>
 
@@ -93,12 +109,12 @@
     <!-- Recent Camera Alerts -->
     <div class="section-card">
       <div class="section-header">
-        <h3><i class="fa fa-bell"></i> Recent Camera Alerts</h3>
-        <span class="section-badge">{{ alerts|length }}</span>
+        <h3><i class="fa fa-bell"></i> Recent Camera Alerts — {{ dept.name }}</h3>
+        <span class="section-badge">{{ alerts|length }} total</span>
       </div>
       <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
         {% for alert in alerts %}
-        <div class="alert-card {% if not alert.acknowledged %}unread{% endif %}">
+        <div class="alert-card {% if not alert.acknowledged %}unread{% endif %}" id="alert-row-{{ alert.id }}">
           <div class="alert-icon {{ alert.alert_type }}">
             {% if alert.alert_type == 'fire' %}<i class="fa fa-fire"></i>
             {% elif alert.alert_type == 'fighting' %}<i class="fa fa-fist-raised"></i>
@@ -112,17 +128,31 @@
           </div>
           <div class="alert-body">
             <div class="alert-type">
-              <span class="alert-type-badge atb-{{ alert.alert_type }}">{{ alert.alert_type|replace('_',' ')|title }}</span>
+              <span class="alert-type-badge atb-{{ alert.alert_type }}">
+                {{ alert.alert_type|replace('_',' ')|title }}
+              </span>
+              {% if not alert.acknowledged %}
+              <span style="color:var(--accent-red); font-size:0.72rem; margin-left:6px;">● NEW</span>
+              {% endif %}
             </div>
             <div class="alert-time"><i class="fa fa-clock"></i> {{ alert.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
-            <div class="alert-dept">Camera #{{ alert.camera_index }}</div>
+            <div class="alert-dept"><i class="fa fa-video"></i> Camera #{{ alert.camera_index }}</div>
           </div>
           {% if alert.snapshot_path %}
           <img class="snapshot-img"
                src="{{ url_for('static', filename=alert.snapshot_path) }}"
-               alt="snap" onerror="this.style.display='none'">
+               alt="snap" title="Click to enlarge"
+               onclick="this.style.width = this.style.width === '200px' ? '60px' : '200px'"
+               onerror="this.style.display='none'">
           {% endif %}
-          {% if alert.acknowledged %}<span style="font-size:0.78rem; color:var(--text-muted);">✓ Acknowledged</span>{% endif %}
+          {% if not alert.acknowledged %}
+          <button class="btn btn-outline btn-sm ack-btn"
+                  onclick="ackAlert({{ alert.id }}, '/staff/alerts/ack/')">
+            <i class="fa fa-check"></i> Ack
+          </button>
+          {% else %}
+          <span style="font-size:0.78rem; color:var(--text-muted);">✓ Done</span>
+          {% endif %}
         </div>
         {% else %}
         <div class="empty-ann"><i class="fa fa-shield-alt"></i> No camera alerts.</div>
@@ -134,7 +164,6 @@
 </div>
 
 <script>
-// ── Live Stats Polling ────────────────────────────────────────────────────────
 const ICONS = {
   fire:"🔥", fighting:"👊", sleeping:"😴", eating:"🍔",
   playing:"🎮", dancing:"💃", mobile_usage:"📱",
@@ -148,35 +177,25 @@ async function refreshStats() {
 
     document.getElementById("stat-sleeping").textContent = data.sleeping_alerts ?? 0;
     document.getElementById("stat-unacked").textContent  = data.unacked_alerts  ?? 0;
+    document.getElementById("stat-fire").textContent     = data.fire_alerts     ?? 0;
+    document.getElementById("stat-fighting").textContent = data.fighting_alerts ?? 0;
 
     if (data.latest_alert) {
       document.getElementById("stat-latest-icon").textContent = ICONS[data.latest_alert] || "⚠️";
-      document.getElementById("stat-latest-type").textContent = data.latest_alert.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+      document.getElementById("stat-latest-type").textContent =
+        data.latest_alert.replace(/_/g," ").replace(/\b\w/g, c => c.toUpperCase());
       document.getElementById("stat-latest-time").textContent = data.latest_time || "";
     }
   } catch(e) { console.warn("Stats fetch failed", e); }
 }
 
+function reloadFeed() {
+  const img = document.getElementById('live-feed');
+  const src = img.src.split('?')[0];
+  img.src = src + '?t=' + Date.now();
+}
+
 refreshStats();
 setInterval(refreshStats, 5000);
-
-// Animate student count label with pulsing effect on change
-let lastCount = null;
-async function pingCount() {
-  // We approximate from sleeping + active using stats
-  const res  = await fetch("{{ url_for('staff.camera_stats') }}").catch(()=>null);
-  if (!res) return;
-  const data = await res.json();
-  const lbl  = document.getElementById("stat-label");
-  const sleeping = data.sleeping_alerts || 0;
-  if (sleeping !== lastCount) {
-    lbl.style.transition = "transform 0.2s, color 0.3s";
-    lbl.style.transform  = "scale(1.2)";
-    setTimeout(()=>{ lbl.style.transform = "scale(1)"; }, 220);
-    lastCount = sleeping;
-  }
-  lbl.textContent = "Live";
-}
-setInterval(pingCount, 8000);
 </script>
 {% endblock %}
