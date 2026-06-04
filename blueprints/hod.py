@@ -208,3 +208,34 @@ def notif_count():
     hod   = current_user
     count = CameraAlert.query.filter_by(dept_id=hod.dept_id, acknowledged=False).count()
     return jsonify({"count": count})
+
+
+@hod_bp.route("/api/camera-stats")
+@login_required
+@hod_required
+def camera_stats():
+    """Return live camera stats for the HOD's department."""
+    hod    = current_user
+    latest = (CameraAlert.query
+              .filter_by(dept_id=hod.dept_id)
+              .order_by(CameraAlert.created_at.desc())
+              .first())
+    sleeping = (CameraAlert.query
+                .filter_by(dept_id=hod.dept_id, alert_type="sleeping", acknowledged=False)
+                .count())
+    unacked  = (CameraAlert.query
+                .filter_by(dept_id=hod.dept_id, acknowledged=False)
+                .count())
+    return jsonify({
+        "unacked_alerts":  unacked,
+        "sleeping_alerts": sleeping,
+        "latest_alert":    latest.alert_type if latest else None,
+        "latest_time":     latest.created_at.strftime("%H:%M:%S") if latest else None,
+        "alert_icons": {
+            "fire": "🔥", "fighting": "👊", "sleeping": "😴",
+            "eating": "🍔", "playing": "🎮", "dancing": "💃",
+            "mobile_usage": "📱", "hand_raising": "✋",
+            "standing": "🧍", "sitting": "🪑",
+        }
+    })
+

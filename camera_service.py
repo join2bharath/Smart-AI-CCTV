@@ -5,9 +5,13 @@ Runs as a SEPARATE Python process from Flask.
 Usage: python camera_service.py [--dept IT] [--cam 0]
 
 Detection capabilities:
-  - YOLOv8 (object detection): fire, person count, eating, fighting
+  - YOLOv8 (object detection): fire, person count, eating, fighting, mobile usage
   - MediaPipe Face Mesh: sleeping (EAR < 0.25 or head pitch < -25°)
-  - YOLOv8-Pose: playing / dancing (keypoint velocity patterns)
+  - YOLOv8-Pose: playing / dancing (keypoint velocity), hand raising, standing/sitting
+
+Person Tracking:
+  - Simple centroid tracker assigns Person 1, Person 2, ... IDs
+  - Count displayed live on camera feed
 
 On detection:
   - Saves snapshot to /snapshots/<dept>/
@@ -30,7 +34,7 @@ import smtplib
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from collections import deque
+from collections import deque, OrderedDict
 
 import cv2
 import numpy as np
@@ -60,8 +64,8 @@ logging.basicConfig(
 log = logging.getLogger("camera_service")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-CONFIG_FILE = Path(__file__).parent / "camera_config.json"
-SNAPSHOT_DIR = Path(__file__).parent / "static" / "snapshots"
+CONFIG_FILE   = Path(__file__).parent / "camera_config.json"
+SNAPSHOT_DIR  = Path(__file__).parent / "static" / "snapshots"
 SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_CFG = dict(
@@ -73,25 +77,35 @@ DB_CFG = dict(
 )
 
 # SMTP — configure these or set via environment variables
-SMTP_HOST     = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+SMTP_HOST     = os.environ.get("MAIL_SERVER",   "smtp.gmail.com")
 SMTP_PORT     = int(os.environ.get("MAIL_PORT", 587))
 SMTP_USER     = os.environ.get("MAIL_USERNAME", "college.cms.alerts@gmail.com")
 SMTP_PASSWORD = os.environ.get("MAIL_PASSWORD", "")
-SMTP_ENABLED  = bool(SMTP_PASSWORD)   # email only if password is set
+SMTP_ENABLED  = bool(SMTP_PASSWORD)
 
-# Detection thresholds
-EAR_THRESHOLD       = 0.25     # Eye Aspect Ratio for sleep detection
-EAR_CONSEC_FRAMES   = 300      # ~10s at 30fps
-HEAD_PITCH_THRESH   = -25.0    # degrees
-HEAD_PITCH_FRAMES   = 150      # ~5s at 30fps
-FIGHT_IOU_THRESHOLD = 0.15     # bounding-box overlap
-POSE_VEL_THRESHOLD  = 40.0     # pixels/frame for playing/dancing
-ALERT_COOLDOWN      = 60       # seconds between same alert type
+# ── Detection thresholds ──────────────────────────────────────────────────────
+EAR_THRESHOLD       = 0.25      # Eye Aspect Ratio for sleep detection
+EAR_CONSEC_FRAMES   = 90        # ~3s at 30fps
+HEAD_PITCH_FRAMES   = 60        # ~2s at 30fps
+FIGHT_IOU_THRESHOLD = 0.15      # bounding-box overlap for fighting
+POSE_VEL_THRESHOLD  = 40.0      # pixels/frame for playing/dancing
+ALERT_COOLDOWN      = 60        # seconds between same alert type
+MOBILE_CLASS_ID     = 67        # YOLO COCO 'cell phone'
+HAND_RAISE_MARGIN   = 20        # wrist y < shoulder y - margin (pixels)
 
-# Alert icon mapping for log
+# ── Alert icon mapping for log ────────────────────────────────────────────────
 ALERT_ICONS = {
-    "fire": "🔥", "fighting": "👊", "sleeping": "😴",
-    "eating": "🍔", "playing": "🎮", "dancing": "💃", "person": "👤",
+    "fire":         "🔥",
+    "fighting":     "👊",
+    "sleeping":     "😴",
+    "eating":       "🍔",
+    "playing":      "🎮",
+    "dancing":      "💃",
+    "mobile_usage": "📱",
+    "hand_raising": "✋",
+    "standing":     "🧍",
+    "sitting":      "🪑",
+    "person":       "👤",
 }
 
 # ── Default camera config ─────────────────────────────────────────────────────
@@ -110,7 +124,6 @@ def load_config() -> dict:
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE) as f:
             return json.load(f)
-    # Write defaults if not exist
     with open(CONFIG_FILE, "w") as f:
         json.dump(DEFAULT_CAMERA_CONFIG, f, indent=2)
     log.info(f"Created default camera_config.json at {CONFIG_FILE}")
@@ -198,13 +211,11 @@ def save_snapshot(frame: np.ndarray, dept_name: str, alert_type: str) -> str:
     """Save a snapshot image; return relative path for DB storage."""
     dept_dir = SNAPSHOT_DIR / dept_name
     dept_dir.mkdir(exist_ok=True)
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{alert_type}_{ts}.jpg"
     full_path = dept_dir / filename
     cv2.imwrite(str(full_path), frame)
-    # Return path relative to static/ for Flask to serve
-    rel_path = f"snapshots/{dept_name}/{filename}"
-    return rel_path
+    return f"snapshots/{dept_name}/{filename}"
 
 
 # ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -213,10 +224,8 @@ def eye_aspect_ratio(landmarks, eye_indices) -> float:
     def lm(i):
         p = landmarks[i]
         return np.array([p.x, p.y])
-    # Vertical distances
     v1 = np.linalg.norm(lm(eye_indices[1]) - lm(eye_indices[5]))
     v2 = np.linalg.norm(lm(eye_indices[2]) - lm(eye_indices[4]))
-    # Horizontal distance
     h  = np.linalg.norm(lm(eye_indices[0]) - lm(eye_indices[3]))
     return (v1 + v2) / (2.0 * h + 1e-6)
 
@@ -243,30 +252,112 @@ def keypoint_velocity(kp_curr, kp_prev) -> float:
     return float(np.mean(vels)) if vels else 0.0
 
 
+# ── Simple Centroid Tracker ───────────────────────────────────────────────────
+class CentroidTracker:
+    """
+    Assigns persistent Person IDs to detected bounding boxes
+    using centroid distance matching across frames.
+    """
+    def __init__(self, max_disappeared=30):
+        self.next_id      = 1
+        self.objects      = OrderedDict()   # id → centroid
+        self.disappeared  = OrderedDict()   # id → frames missing
+        self.max_disappeared = max_disappeared
+
+    def _centroid(self, box):
+        x1, y1, x2, y2 = box
+        return ((x1 + x2) // 2, (y1 + y2) // 2)
+
+    def update(self, boxes):
+        """
+        boxes: list of [x1,y1,x2,y2]
+        Returns OrderedDict: id → centroid
+        """
+        if not boxes:
+            for oid in list(self.disappeared):
+                self.disappeared[oid] += 1
+                if self.disappeared[oid] > self.max_disappeared:
+                    del self.objects[oid]
+                    del self.disappeared[oid]
+            return self.objects
+
+        input_centroids = [self._centroid(b) for b in boxes]
+
+        if not self.objects:
+            for c in input_centroids:
+                self.objects[self.next_id]     = c
+                self.disappeared[self.next_id] = 0
+                self.next_id += 1
+        else:
+            obj_ids    = list(self.objects.keys())
+            obj_cents  = list(self.objects.values())
+
+            # Compute distance matrix
+            D = np.zeros((len(obj_cents), len(input_centroids)), dtype="float")
+            for i, oc in enumerate(obj_cents):
+                for j, ic in enumerate(input_centroids):
+                    D[i, j] = math.sqrt((oc[0]-ic[0])**2 + (oc[1]-ic[1])**2)
+
+            # Greedy match: row=smallest dist first
+            rows = D.min(axis=1).argsort()
+            cols = D.argmin(axis=1)[rows]
+
+            used_rows, used_cols = set(), set()
+            for r, c in zip(rows, cols):
+                if r in used_rows or c in used_cols:
+                    continue
+                if D[r, c] > 120:   # too far → new person
+                    continue
+                oid = obj_ids[r]
+                self.objects[oid]     = input_centroids[c]
+                self.disappeared[oid] = 0
+                used_rows.add(r)
+                used_cols.add(c)
+
+            unused_rows = set(range(D.shape[0])) - used_rows
+            unused_cols = set(range(D.shape[1])) - used_cols
+
+            for r in unused_rows:
+                oid = obj_ids[r]
+                self.disappeared[oid] += 1
+                if self.disappeared[oid] > self.max_disappeared:
+                    del self.objects[oid]
+                    del self.disappeared[oid]
+
+            for c in unused_cols:
+                self.objects[self.next_id]     = input_centroids[c]
+                self.disappeared[self.next_id] = 0
+                self.next_id += 1
+
+        return self.objects
+
+
 # ── Main Camera Detector class ────────────────────────────────────────────────
 class DeptCameraDetector:
     """Runs detection on a single department's camera stream."""
 
-    # MediaPipe left/right eye landmark indices (subset for EAR)
     LEFT_EYE  = [362, 385, 387, 263, 373, 380]
     RIGHT_EYE = [33,  160, 158, 133, 153, 144]
 
     def __init__(self, dept_name: str, camera_index: int):
-        self.dept_name    = dept_name
-        self.cam_idx      = camera_index
-        self.dept_info    = get_dept_info(dept_name)
-        self.last_alert   = {}          # alert_type → timestamp
-        self.ear_counter  = 0
-        self.pitch_counter = 0
+        self.dept_name      = dept_name
+        self.cam_idx        = camera_index
+        self.dept_info      = get_dept_info(dept_name)
+        self.last_alert     = {}      # alert_type → timestamp
+        self.tracker        = CentroidTracker(max_disappeared=30)
+        self.person_status  = {}      # person_id → activity string
+        self.ear_counters   = {}      # person_id → ear frame count
+        self.pitch_counters = {}      # person_id → pitch frame count
         self.prev_keypoints = None
+        self.prev_count     = 0
 
-        # Load models
-        self.yolo_det  = YOLO("yolov8n.pt")     if YOLO_AVAILABLE else None
-        self.yolo_pose = YOLO("yolov8n-pose.pt") if YOLO_AVAILABLE else None
+        log.info(f"Loading YOLO models …")
+        self.yolo_det  = YOLO("yolov8n.pt")      if YOLO_AVAILABLE else None
+        self.yolo_pose = YOLO("yolov8n-pose.pt")  if YOLO_AVAILABLE else None
 
         if MP_AVAILABLE:
             self.face_mesh = mp.solutions.face_mesh.FaceMesh(
-                max_num_faces=5,
+                max_num_faces=10,
                 refine_landmarks=True,
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5,
@@ -275,47 +366,37 @@ class DeptCameraDetector:
             self.face_mesh = None
 
     def _can_alert(self, alert_type: str) -> bool:
-        """Rate-limit alerts per type."""
         last = self.last_alert.get(alert_type, 0)
         return (time.time() - last) > ALERT_COOLDOWN
 
     def _trigger_alert(self, frame: np.ndarray, alert_type: str):
-        """Save snapshot, insert DB row, send email."""
         if not self._can_alert(alert_type):
             return
         self.last_alert[alert_type] = time.time()
-
         icon = ALERT_ICONS.get(alert_type, "⚠️")
         log.info(f"{icon} ALERT [{self.dept_name}]: {alert_type.upper()}")
-
         snap_path = save_snapshot(frame, self.dept_name, alert_type)
-
         if self.dept_info:
-            insert_alert(
-                self.dept_info["dept_id"],
-                alert_type,
-                snap_path,
-                self.cam_idx,
-            )
+            insert_alert(self.dept_info["dept_id"], alert_type, snap_path, self.cam_idx)
             if self.dept_info.get("hod_email"):
                 send_email_alert(
                     self.dept_info["hod_email"],
-                    self.dept_name,
-                    alert_type,
-                    snap_path,
+                    self.dept_name, alert_type, snap_path,
                 )
 
     # ── Detection methods ─────────────────────────────────────────────────────
 
-    def detect_fire_eating_fighting(self, frame: np.ndarray):
-        """YOLOv8 object detection for fire, eating, fighting."""
+    def detect_objects(self, frame: np.ndarray) -> list:
+        """
+        YOLOv8 detection.
+        Returns list of person bounding boxes [x1,y1,x2,y2].
+        Also fires alerts for fire, eating, mobile usage.
+        """
+        person_boxes = []
         if not self.yolo_det:
-            return
+            return person_boxes
 
         results = self.yolo_det(frame, verbose=False, conf=0.4)
-        boxes   = []
-        labels  = []
-
         for r in results:
             for box in r.boxes:
                 cls_id   = int(box.cls[0])
@@ -323,106 +404,156 @@ class DeptCameraDetector:
                 conf     = float(box.conf[0])
                 x1, y1, x2, y2 = [int(v) for v in box.xyxy[0]]
 
-                # ── Fire detection ───────────────────────────────────────────
+                # Fire
                 if "fire" in cls_name or "flame" in cls_name:
                     cv2.rectangle(frame, (x1,y1), (x2,y2), (0,0,255), 2)
                     cv2.putText(frame, f"FIRE {conf:.0%}", (x1,y1-8),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
                     self._trigger_alert(frame, "fire")
 
-                # ── Eating detection ─────────────────────────────────────────
-                # YOLO COCO: cup(41), fork(42), knife(43), spoon(44), bowl(45), apple..banana (47-52)
-                if cls_id in range(39, 60):   # food/kitchen objects
-                    cv2.rectangle(frame, (x1,y1), (x2,y2), (0,200,100), 2)
+                # Food/eating (COCO food classes 47-52 + kitchen 39-45)
+                if cls_id in range(39, 60):
                     self._trigger_alert(frame, "eating")
 
-                if cls_name == "person":
-                    boxes.append([x1, y1, x2, y2])
-                    labels.append(cls_name)
+                # Mobile usage
+                if cls_id == MOBILE_CLASS_ID:
+                    cv2.rectangle(frame, (x1,y1), (x2,y2), (255,50,200), 2)
+                    cv2.putText(frame, "PHONE", (x1, y1-8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,50,200), 2)
+                    self._trigger_alert(frame, "mobile_usage")
 
-        # ── Fighting: overlapping person bboxes ──────────────────────────────
-        persons = [b for b, l in zip(boxes, labels) if l == "person"]
-        if len(persons) >= 2:
-            for i in range(len(persons)):
-                for j in range(i+1, len(persons)):
-                    iou = boxes_iou(persons[i], persons[j])
-                    if iou > FIGHT_IOU_THRESHOLD:
-                        cv2.rectangle(frame, (persons[i][0], persons[i][1]),
-                                      (persons[i][2], persons[i][3]), (0,50,255), 3)
+                # Person
+                if cls_name == "person":
+                    person_boxes.append([x1, y1, x2, y2])
+
+        # Fighting: overlapping bounding boxes
+        if len(person_boxes) >= 2:
+            for i in range(len(person_boxes)):
+                for j in range(i+1, len(person_boxes)):
+                    if boxes_iou(person_boxes[i], person_boxes[j]) > FIGHT_IOU_THRESHOLD:
+                        cv2.rectangle(frame,
+                                      (person_boxes[i][0], person_boxes[i][1]),
+                                      (person_boxes[i][2], person_boxes[i][3]),
+                                      (0,50,255), 3)
                         self._trigger_alert(frame, "fighting")
 
-    def detect_sleeping(self, frame: np.ndarray):
-        """MediaPipe FaceMesh: sleep via EAR and head pitch."""
+        return person_boxes
+
+    def detect_sleeping_faces(self, frame: np.ndarray):
+        """MediaPipe FaceMesh: sleeping via EAR and head pitch (global counter)."""
         if not self.face_mesh:
             return
 
-        rgb   = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        res   = self.face_mesh.process(rgb)
-        h, w  = frame.shape[:2]
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        res = self.face_mesh.process(rgb)
+        h, w = frame.shape[:2]
 
         if not res.multi_face_landmarks:
-            self.ear_counter   = 0
-            self.pitch_counter = 0
+            self.ear_counters  = {}
+            self.pitch_counters = {}
             return
 
-        for face_lm in res.multi_face_landmarks:
-            lm = face_lm.landmark
+        for face_idx, face_lm in enumerate(res.multi_face_landmarks):
+            pid = face_idx  # approximate face index
+            lm  = face_lm.landmark
 
             # EAR
             left_ear  = eye_aspect_ratio(lm, self.LEFT_EYE)
             right_ear = eye_aspect_ratio(lm, self.RIGHT_EYE)
             ear       = (left_ear + right_ear) / 2.0
 
+            self.ear_counters.setdefault(pid, 0)
             if ear < EAR_THRESHOLD:
-                self.ear_counter += 1
+                self.ear_counters[pid] += 1
             else:
-                self.ear_counter = 0
+                self.ear_counters[pid] = 0
 
-            if self.ear_counter >= EAR_CONSEC_FRAMES:
-                cv2.putText(frame, "SLEEPING (EAR)", (30, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+            if self.ear_counters[pid] >= EAR_CONSEC_FRAMES:
+                cv2.putText(frame, "SLEEPING (EYES)", (30, 60 + face_idx * 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
                 self._trigger_alert(frame, "sleeping")
 
-            # Head pitch using nose tip vs forehead/chin landmarks
-            nose  = lm[1]
-            chin  = lm[152]
-            fhead = lm[10]
-            # Compute rough pitch angle
-            dy = (chin.y - fhead.y) * h
-            dz = abs(nose.z - chin.z) * h
-            pitch = math.degrees(math.atan2(dz, max(dy, 1)))
-            # Negative pitch → head drooping forward
-            if (nose.y - 0.5) > 0.1:   # head tilted down heuristic
-                self.pitch_counter += 1
+            # Head pitch heuristic
+            nose = lm[1]
+            self.pitch_counters.setdefault(pid, 0)
+            if (nose.y - 0.5) > 0.12:   # head drooping down
+                self.pitch_counters[pid] += 1
             else:
-                self.pitch_counter = 0
+                self.pitch_counters[pid] = 0
 
-            if self.pitch_counter >= HEAD_PITCH_FRAMES:
-                cv2.putText(frame, "SLEEPING (HEAD)", (30, 90),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0,100,255), 2)
+            if self.pitch_counters[pid] >= HEAD_PITCH_FRAMES:
+                cv2.putText(frame, "SLEEPING (HEAD)", (30, 90 + face_idx * 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,100,255), 2)
                 self._trigger_alert(frame, "sleeping")
 
-    def detect_playing_dancing(self, frame: np.ndarray):
-        """YOLOv8-Pose: detect rapid keypoint movement (playing/dancing)."""
+    def detect_pose_activities(self, frame: np.ndarray):
+        """YOLOv8-Pose: dancing, playing, hand raising, standing/sitting."""
         if not self.yolo_pose:
             return
 
         results = self.yolo_pose(frame, verbose=False, conf=0.4)
+        h, w    = frame.shape[:2]
 
         for r in results:
             if r.keypoints is None:
                 continue
-            kp_data = r.keypoints.data  # (N_persons, 17, 3)
-            for person_kps in kp_data:
-                kps = person_kps.tolist()  # list of (x, y, conf)
-                vel = keypoint_velocity(kps, self.prev_keypoints)
+            kp_data  = r.keypoints.data        # (N, 17, 3)
+            boxes_xy = r.boxes.xyxy if r.boxes is not None else None
 
+            for idx, person_kps in enumerate(kp_data):
+                kps = person_kps.tolist()
+
+                # ── Playing / Dancing (keypoint velocity) ───────────────────
+                vel = keypoint_velocity(kps, self.prev_keypoints)
                 if vel > POSE_VEL_THRESHOLD * 1.5:
                     self._trigger_alert(frame, "dancing")
                 elif vel > POSE_VEL_THRESHOLD:
                     self._trigger_alert(frame, "playing")
-
                 self.prev_keypoints = kps
+
+                # ── Hand Raising ──────────────────────────────────────────
+                # Keypoints: 5=left_shoulder, 6=right_shoulder, 9=left_wrist, 10=right_wrist
+                try:
+                    l_shoulder_y = kps[5][1]
+                    r_shoulder_y = kps[6][1]
+                    l_wrist_y    = kps[9][1]
+                    r_wrist_y    = kps[10][1]
+                    l_wrist_conf = kps[9][2]
+                    r_wrist_conf = kps[10][2]
+
+                    if (l_wrist_conf > 0.4 and
+                            l_wrist_y < l_shoulder_y - HAND_RAISE_MARGIN):
+                        self._trigger_alert(frame, "hand_raising")
+                        # Draw label near wrist
+                        lx, ly = int(kps[9][0] * w), int(kps[9][1] * h)
+                        cv2.putText(frame, "HAND UP", (lx, ly - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,200), 2)
+
+                    if (r_wrist_conf > 0.4 and
+                            r_wrist_y < r_shoulder_y - HAND_RAISE_MARGIN):
+                        self._trigger_alert(frame, "hand_raising")
+                        rx, ry = int(kps[10][0] * w), int(kps[10][1] * h)
+                        cv2.putText(frame, "HAND UP", (rx, ry - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,200), 2)
+                except (IndexError, TypeError):
+                    pass
+
+                # ── Standing / Sitting ────────────────────────────────────
+                if boxes_xy is not None and idx < len(boxes_xy):
+                    bx1, by1, bx2, by2 = [int(v) for v in boxes_xy[idx]]
+                    bh = by2 - by1
+                    bw = bx2 - bx1
+                    if bw > 0:
+                        ratio = bh / (bw + 1e-6)
+                        if ratio > 2.0:
+                            activity = "Standing"
+                        elif ratio > 1.0:
+                            activity = "Sitting"
+                        else:
+                            activity = "Active"
+                        cv2.putText(frame, activity,
+                                    (bx1, by2 + 18),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255,220,0), 2)
 
     def run(self):
         """Main detection loop for this department's camera."""
@@ -444,19 +575,47 @@ class DeptCameraDetector:
                 continue
 
             frame_count += 1
+            h, w = frame.shape[:2]
 
-            # Run all detectors every frame
-            self.detect_fire_eating_fighting(frame)
-            self.detect_sleeping(frame)
+            # ── Object detection (persons, fire, food, phone) ──────────────
+            person_boxes = self.detect_objects(frame)
 
-            # Pose detection every 5 frames (performance)
+            # ── Update person tracker ──────────────────────────────────────
+            tracked = self.tracker.update(person_boxes)
+            person_count = len(tracked)
+
+            # Log count changes
+            if person_count != self.prev_count:
+                log.info(f"[{self.dept_name}] Person count changed: {person_count}")
+                for pid in tracked:
+                    log.info(f"  Person {pid}: detected")
+                self.prev_count = person_count
+
+            # Draw person IDs on frame
+            for box, (pid, centroid) in zip(person_boxes, tracked.items()):
+                x1, y1, x2, y2 = box
+                status = self.person_status.get(pid, "Active")
+                color  = (0,0,255) if status == "Sleeping" else (0,220,100)
+                cv2.rectangle(frame, (x1,y1), (x2,y2), color, 2)
+                label = f"Person {pid}: {status}"
+                cv2.putText(frame, label, (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+
+            # ── Sleeping detection ─────────────────────────────────────────
+            self.detect_sleeping_faces(frame)
+
+            # ── Pose activities every 5 frames ─────────────────────────────
             if frame_count % 5 == 0:
-                self.detect_playing_dancing(frame)
+                self.detect_pose_activities(frame)
 
-            # Overlay info
+            # ── HUD overlay ────────────────────────────────────────────────
+            sleeping_count = sum(1 for s in self.person_status.values() if s == "Sleeping")
             ts = datetime.datetime.now().strftime("%H:%M:%S")
-            cv2.putText(frame, f"[{self.dept_name}] {ts}", (10, 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100,220,100), 2)
+
+            # Top banner
+            cv2.rectangle(frame, (0, 0), (w, 38), (20, 20, 20), -1)
+            cv2.putText(frame, f"[{self.dept_name}]  Students: {person_count}  |  Sleeping: {sleeping_count}  |  Active: {max(0, person_count - sleeping_count)}  |  {ts}",
+                        (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 120), 2)
 
             cv2.imshow(f"College CMS — {self.dept_name}", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -467,41 +626,30 @@ class DeptCameraDetector:
         log.info(f"[{self.dept_name}] Camera service stopped.")
 
 
-# ── Test mode: fire detection on a sample image ───────────────────────────────
+# ── Test mode ─────────────────────────────────────────────────────────────────
 def test_fire_detection():
-    """Test fire detection on a sample image (creates a test image if absent)."""
     log.info("=== Fire Detection Test ===")
     if not YOLO_AVAILABLE:
         log.error("ultralytics not installed. Cannot test.")
         return
-
-    model = YOLO("yolov8n.pt")
-
-    # Create a simple red-orange test image (simulates warm colors)
+    model    = YOLO("yolov8n.pt")
     test_img = np.zeros((480, 640, 3), dtype=np.uint8)
-    # Draw orange/red rectangle simulating fire region
     cv2.rectangle(test_img, (150, 100), (450, 380), (0, 100, 255), -1)
     cv2.putText(test_img, "FIRE TEST IMAGE", (80, 50),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255,255,255), 3)
-
     test_path = SNAPSHOT_DIR / "test_fire_input.jpg"
     cv2.imwrite(str(test_path), test_img)
-    log.info(f"Test image saved to: {test_path}")
-
-    # Run YOLO detection
-    results = model(test_img, verbose=False)
+    results    = model(test_img, verbose=False)
     detections = []
     for r in results:
         for box in r.boxes:
             cls_name = model.model.names[int(box.cls[0])]
             conf     = float(box.conf[0])
             detections.append(f"{cls_name} ({conf:.0%})")
-
     if detections:
         log.info(f"Detections: {', '.join(detections)}")
     else:
         log.info("No objects detected in test image (expected for synthetic image).")
-
     log.info("Fire detection test complete. YOLOv8 model loaded successfully ✓")
 
 
@@ -517,7 +665,7 @@ def main():
         test_fire_detection()
         return
 
-    config = load_config()
+    config    = load_config()
     dept_name = args.dept.upper()
 
     if dept_name not in config:
