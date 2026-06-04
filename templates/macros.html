@@ -157,5 +157,27 @@
     }
     setTimeout(tick, 1000);
   })();
+
+  // ── Global: acknowledge a camera alert via AJAX ───────────────────────────
+  function ackAlert(alertId, basePath) {
+    fetch(basePath + alertId, { method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                 'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        const row = document.getElementById('alert-row-' + alertId);
+        if (row) {
+          row.classList.remove('unread');
+          const btn = row.querySelector('.ack-btn');
+          if (btn) {
+            btn.outerHTML = '<span style="font-size:0.78rem;color:var(--text-muted);">✓ Acknowledged</span>';
+          }
+        }
+      }
+    })
+    .catch(err => console.warn('ackAlert failed:', err));
+  }
 </script>
 {% endmacro %}

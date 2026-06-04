@@ -216,3 +216,51 @@ def contact_hod():
 def notif_count():
     count = CameraAlert.query.filter_by(acknowledged=False).count()
     return jsonify({"count": count})
+
+
+@principal_bp.route("/api/camera-stats")
+@login_required
+@principal_required
+def camera_stats():
+    """Return college-wide camera alert stats for the principal dashboard."""
+    dept_id_filter = request.args.get("dept_id", "all")
+
+    if dept_id_filter != "all":
+        try:
+            did = int(dept_id_filter)
+        except ValueError:
+            did = None
+    else:
+        did = None
+
+    base = CameraAlert.query
+    if did:
+        base = base.filter_by(dept_id=did)
+
+    latest   = base.order_by(CameraAlert.created_at.desc()).first()
+    sleeping = base.filter_by(alert_type="sleeping", acknowledged=False).count()
+    unacked  = base.filter_by(acknowledged=False).count()
+
+    # Per-department breakdown
+    departments = Department.query.all()
+    dept_breakdown = []
+    for dept in departments:
+        dept_breakdown.append({
+            "id":      dept.id,
+            "name":    dept.name,
+            "unacked": CameraAlert.query.filter_by(dept_id=dept.id, acknowledged=False).count(),
+        })
+
+    return jsonify({
+        "unacked_alerts":  unacked,
+        "sleeping_alerts": sleeping,
+        "latest_alert":    latest.alert_type if latest else None,
+        "latest_time":     latest.created_at.strftime("%H:%M:%S") if latest else None,
+        "dept_breakdown":  dept_breakdown,
+        "alert_icons": {
+            "fire": "🔥", "fighting": "👊", "sleeping": "😴",
+            "eating": "🍔", "playing": "🎮", "dancing": "💃",
+            "mobile_usage": "📱", "hand_raising": "✋",
+            "standing": "🧍", "sitting": "🪑",
+        }
+    })

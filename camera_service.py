@@ -486,8 +486,74 @@ class DeptCameraDetector:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,100,255), 2)
                 self._trigger_alert(frame, "sleeping")
 
+    # ── Playing detection thresholds (multi-signal) ───────────────────────────
+    PLAY_ARM_SPREAD_RATIO  = 0.35   # wrist x-dist from hip-center > 35% of frame width
+    PLAY_WRIST_RAISE_RATIO = 0.08   # wrist y < shoulder y – 8% frame height
+    PLAY_ELBOW_RAISE_RATIO = 0.05   # elbow y < shoulder y – 5% frame height
+    PLAY_WRIST_GAP_RATIO   = 0.40   # |left_wrist_x – right_wrist_x| > 40% frame width
+    PLAY_SCORE_PLAY        = 2      # ≥2 signals → playing
+    PLAY_SCORE_DANCE       = 3      # ≥3 signals → dancing
+
+    def _playing_score(self, kps: list, frame_w: int, frame_h: int):
+        """
+        Multi-signal playing score for one person's keypoints.
+        Returns (score, signals_list).
+        Keypoint indices (COCO): 5=L_shoulder, 6=R_shoulder,
+          7=L_elbow, 8=R_elbow, 9=L_wrist, 10=R_wrist, 11=L_hip, 12=R_hip.
+        """
+        score = 0
+        signals = []
+
+        def kp(idx):
+            if idx >= len(kps): return None
+            x, y, c = kps[idx]
+            return (x, y, c) if c > 0.3 else None
+
+        ls = kp(5);  rs = kp(6)
+        le = kp(7);  re = kp(8)
+        lw = kp(9);  rw = kp(10)
+        lh = kp(11); rh = kp(12)
+
+        # Hip centre x
+        if lh and rh:
+            hip_cx = (lh[0] + rh[0]) / 2.0
+        elif lh:
+            hip_cx = lh[0]
+        elif rh:
+            hip_cx = rh[0]
+        else:
+            hip_cx = frame_w / 2.0
+
+        # Signal 1: arm spread — wrist far from hip centre
+        if lw and abs(lw[0] - hip_cx) / (frame_w + 1e-6) > self.PLAY_ARM_SPREAD_RATIO:
+            score += 1; signals.append("arm_spread_L")
+        if rw and abs(rw[0] - hip_cx) / (frame_w + 1e-6) > self.PLAY_ARM_SPREAD_RATIO:
+            score += 1; signals.append("arm_spread_R")
+
+        # Signal 2: wrist raised above shoulder
+        thresh_wr = self.PLAY_WRIST_RAISE_RATIO * frame_h
+        if lw and ls and lw[1] < ls[1] - thresh_wr:
+            score += 1; signals.append("wrist_raise_L")
+        if rw and rs and rw[1] < rs[1] - thresh_wr:
+            score += 1; signals.append("wrist_raise_R")
+
+        # Signal 3: elbow raised above shoulder
+        thresh_er = self.PLAY_ELBOW_RAISE_RATIO * frame_h
+        if le and ls and le[1] < ls[1] - thresh_er:
+            score += 1; signals.append("elbow_raise_L")
+        if re and rs and re[1] < rs[1] - thresh_er:
+            score += 1; signals.append("elbow_raise_R")
+
+        # Signal 4: wide wrist gap (arms outstretched)
+        if lw and rw:
+            gap = abs(lw[0] - rw[0]) / (frame_w + 1e-6)
+            if gap > self.PLAY_WRIST_GAP_RATIO:
+                score += 1; signals.append("wide_wrist_gap")
+
+        return score, signals
+
     def detect_pose_activities(self, frame: np.ndarray):
-        """YOLOv8-Pose: dancing, playing, hand raising, standing/sitting."""
+        """YOLOv8-Pose: dancing, playing (multi-signal), hand raising, standing/sitting."""
         if not self.yolo_pose:
             return
 
@@ -503,12 +569,24 @@ class DeptCameraDetector:
             for idx, person_kps in enumerate(kp_data):
                 kps = person_kps.tolist()
 
-                # ── Playing / Dancing (keypoint velocity) ───────────────────
+                # ── Playing / Dancing (multi-signal heuristic) ───────────────
+                play_score, signals = self._playing_score(kps, w, h)
+
+                # Velocity as one extra bonus signal
                 vel = keypoint_velocity(kps, self.prev_keypoints)
-                if vel > POSE_VEL_THRESHOLD * 1.5:
+                if vel > POSE_VEL_THRESHOLD:
+                    play_score += 1
+                    signals.append("velocity")
+
+                if play_score >= self.PLAY_SCORE_DANCE:
+                    cv2.putText(frame, f"DANCING! ({play_score})", (10, 140),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 255), 2)
                     self._trigger_alert(frame, "dancing")
-                elif vel > POSE_VEL_THRESHOLD:
+                elif play_score >= self.PLAY_SCORE_PLAY:
+                    cv2.putText(frame, f"PLAYING! ({play_score})", (10, 140),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
                     self._trigger_alert(frame, "playing")
+
                 self.prev_keypoints = kps
 
                 # ── Hand Raising ──────────────────────────────────────────
@@ -521,20 +599,21 @@ class DeptCameraDetector:
                     l_wrist_conf = kps[9][2]
                     r_wrist_conf = kps[10][2]
 
-                    if (l_wrist_conf > 0.4 and
-                            l_wrist_y < l_shoulder_y - HAND_RAISE_MARGIN):
-                        self._trigger_alert(frame, "hand_raising")
-                        # Draw label near wrist
-                        lx, ly = int(kps[9][0] * w), int(kps[9][1] * h)
-                        cv2.putText(frame, "HAND UP", (lx, ly - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,200), 2)
+                    # Only trigger hand raise if NOT already classified as playing/dancing
+                    if play_score < self.PLAY_SCORE_PLAY:
+                        if (l_wrist_conf > 0.4 and
+                                l_wrist_y < l_shoulder_y - HAND_RAISE_MARGIN):
+                            self._trigger_alert(frame, "hand_raising")
+                            lx, ly = int(kps[9][0]), int(kps[9][1])
+                            cv2.putText(frame, "HAND UP", (lx, ly - 10),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,200), 2)
 
-                    if (r_wrist_conf > 0.4 and
-                            r_wrist_y < r_shoulder_y - HAND_RAISE_MARGIN):
-                        self._trigger_alert(frame, "hand_raising")
-                        rx, ry = int(kps[10][0] * w), int(kps[10][1] * h)
-                        cv2.putText(frame, "HAND UP", (rx, ry - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,200), 2)
+                        if (r_wrist_conf > 0.4 and
+                                r_wrist_y < r_shoulder_y - HAND_RAISE_MARGIN):
+                            self._trigger_alert(frame, "hand_raising")
+                            rx, ry = int(kps[10][0]), int(kps[10][1])
+                            cv2.putText(frame, "HAND UP", (rx, ry - 10),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,200), 2)
                 except (IndexError, TypeError):
                     pass
 

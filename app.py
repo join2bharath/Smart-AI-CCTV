@@ -125,14 +125,51 @@ def gen_frames(dept_name):
                     self.next_id += 1
             return self.objects
 
-    tracker       = CentroidTracker()
-    ear_counters  = {}   # person_id → count
+    tracker        = CentroidTracker()
+    ear_counters   = {}   # person_id → count
     pitch_counters = {}
-    person_status = {}   # person_id → "Active" | "Sleeping"
-    last_alert    = {}
+    person_status  = {}   # person_id → "Active" | "Sleeping"
+    last_alert     = {}
     prev_keypoints = None
-    frame_count   = 0
-    prev_count    = 0
+    frame_count    = 0
+    prev_count     = 0
+
+    # ── Multi-signal playing detection constants ────────────────────────
+    PLAY_ARM_SPREAD_RATIO  = 0.35
+    PLAY_WRIST_RAISE_RATIO = 0.08
+    PLAY_ELBOW_RAISE_RATIO = 0.05
+    PLAY_WRIST_GAP_RATIO   = 0.40
+    PLAY_SCORE_PLAY        = 2
+    PLAY_SCORE_DANCE       = 3
+
+    def playing_score(kps, fw, fh):
+        """Return (score, signals) for one person's keypoint list."""
+        sc, sigs = 0, []
+        def kp(i):
+            if i >= len(kps): return None
+            x, y, c = kps[i]
+            return (x, y, c) if c > 0.3 else None
+        ls=kp(5); rs=kp(6); le=kp(7); re=kp(8)
+        lw=kp(9); rw=kp(10); lh=kp(11); rh=kp(12)
+        hip_cx = ((lh[0]+rh[0])/2 if lh and rh else
+                  lh[0] if lh else rh[0] if rh else fw/2)
+        # arm spread
+        if lw and abs(lw[0]-hip_cx)/(fw+1e-6) > PLAY_ARM_SPREAD_RATIO:
+            sc+=1; sigs.append("arm_L")
+        if rw and abs(rw[0]-hip_cx)/(fw+1e-6) > PLAY_ARM_SPREAD_RATIO:
+            sc+=1; sigs.append("arm_R")
+        # wrist raise
+        twr = PLAY_WRIST_RAISE_RATIO * fh
+        if lw and ls and lw[1] < ls[1]-twr: sc+=1; sigs.append("wr_L")
+        if rw and rs and rw[1] < rs[1]-twr: sc+=1; sigs.append("wr_R")
+        # elbow raise
+        ter = PLAY_ELBOW_RAISE_RATIO * fh
+        if le and ls and le[1] < ls[1]-ter: sc+=1; sigs.append("er_L")
+        if re and rs and re[1] < rs[1]-ter: sc+=1; sigs.append("er_R")
+        # wide wrist gap
+        if lw and rw and abs(lw[0]-rw[0])/(fw+1e-6) > PLAY_WRIST_GAP_RATIO:
+            sc+=1; sigs.append("gap")
+        return sc, sigs
 
     LEFT_EYE  = [362, 385, 387, 263, 373, 380]
     RIGHT_EYE = [33,  160, 158, 133, 153, 144]
@@ -290,35 +327,39 @@ def gen_frames(dept_name):
                     for idx, person_kps in enumerate(kp_data):
                         kps = person_kps.tolist()
 
-                        # Playing / Dancing
-                        vel = keypoint_velocity(kps, prev_keypoints)
-                        if vel > POSE_VEL_THRESHOLD * 1.5:
-                            cv2.putText(frame, "DANCING!", (10, 140),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 3)
+                        # Playing / Dancing (multi-signal)
+                        ps, _ = playing_score(kps, w, h)
+                        vel   = keypoint_velocity(kps, prev_keypoints)
+                        if vel > POSE_VEL_THRESHOLD:
+                            ps += 1
+                        if ps >= PLAY_SCORE_DANCE:
+                            cv2.putText(frame, f"DANCING! ({ps})", (10, 140),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255,0,255), 2)
                             trigger_alert(frame, "dancing")
-                        elif vel > POSE_VEL_THRESHOLD:
-                            cv2.putText(frame, "PLAYING!", (10, 140),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,255,255), 3)
+                        elif ps >= PLAY_SCORE_PLAY:
+                            cv2.putText(frame, f"PLAYING! ({ps})", (10, 140),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,255), 2)
                             trigger_alert(frame, "playing")
                         prev_keypoints = kps
 
-                        # Hand raising
+                        # Hand raising (only when NOT playing/dancing)
                         try:
                             l_sh_y = kps[5][1]; r_sh_y = kps[6][1]
                             l_wr_y = kps[9][1]; r_wr_y = kps[10][1]
                             l_wr_c = kps[9][2]; r_wr_c = kps[10][2]
 
-                            if l_wr_c > 0.4 and l_wr_y < l_sh_y - HAND_RAISE_MARGIN:
-                                lx = int(kps[9][0]); ly = int(kps[9][1])
-                                cv2.putText(frame, "HAND RAISED", (lx, ly-10),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,180), 2)
-                                trigger_alert(frame, "hand_raising")
+                            if ps < PLAY_SCORE_PLAY:
+                                if l_wr_c > 0.4 and l_wr_y < l_sh_y - HAND_RAISE_MARGIN:
+                                    lx = int(kps[9][0]); ly = int(kps[9][1])
+                                    cv2.putText(frame, "HAND RAISED", (lx, ly-10),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,180), 2)
+                                    trigger_alert(frame, "hand_raising")
 
-                            if r_wr_c > 0.4 and r_wr_y < r_sh_y - HAND_RAISE_MARGIN:
-                                rx = int(kps[10][0]); ry = int(kps[10][1])
-                                cv2.putText(frame, "HAND RAISED", (rx, ry-10),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,180), 2)
-                                trigger_alert(frame, "hand_raising")
+                                if r_wr_c > 0.4 and r_wr_y < r_sh_y - HAND_RAISE_MARGIN:
+                                    rx = int(kps[10][0]); ry = int(kps[10][1])
+                                    cv2.putText(frame, "HAND RAISED", (rx, ry-10),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,180), 2)
+                                    trigger_alert(frame, "hand_raising")
                         except (IndexError, TypeError):
                             pass
 
